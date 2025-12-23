@@ -1,20 +1,25 @@
 /**
  * Loon脚本 - 本地天气推送
  * Cron: 0 8 * * *
+ * 每天早上8点执行
  */
 
-// ============ 配置区域 ============
+// ============ 配置区域（按你要求：内置） ============
 const CONFIG = {
-  weatherApiKey: 'HE2208311053331687',
+  // 和风天气 API KEY（注意：请确认这是控制台里的“API KEY”，不是项目ID/名称）
+  weatherApiKey: 'b7583671face461ab6423cdc8b665473',
+
+  // 高德 Web服务 Key
   amapApiKey: '2332287723c1a6b0d33d38c30976ab86',
 
+  // 通知标题
   notificationTitle: '🌤️ 今日天气',
 
-  // 是否使用Loon的GPS定位（更精准但需要权限）
+  // 是否使用 Loon GPS（需要 iOS 给 Loon 开定位权限）
   useGPS: true,
 
-  // 可选：位置覆盖（不做设置项，你手动改这里）
-  // 支持两种格式：
+  // 可选：位置覆盖（用于修复 IP 定位偏差）
+  // 支持：
   // 1) "116.41,39.92"（经度,纬度）
   // 2) "上海市 浦东新区"（文本，走高德地理编码）
   locationOverride: ""
@@ -22,6 +27,13 @@ const CONFIG = {
 
 // ============ 和风 API Host（专属域名） ============
 const QWEATHER_HOST = 'qn2pfyvquw.re.qweatherapi.com';
+
+// 和风鉴权：使用请求头 X-QW-Api-Key（解决 HTTP 401）
+const QW_HEADERS = {
+  'Accept': 'application/json',
+  'User-Agent': 'Loon',
+  'X-QW-Api-Key': CONFIG.weatherApiKey
+};
 
 // ============ HTTP 封装（兼容 Loon：使用 $httpClient） ============
 function httpGet(options) {
@@ -34,11 +46,7 @@ function httpGet(options) {
     $httpClient.get(opts, (err, resp, body) => {
       if (err) return reject(err);
       const status = resp && (resp.status || resp.statusCode) ? (resp.status || resp.statusCode) : 0;
-      resolve({
-        status,
-        headers: (resp && resp.headers) || {},
-        body: body || ''
-      });
+      resolve({ status, headers: (resp && resp.headers) || {}, body: body || '' });
     });
   });
 }
@@ -47,7 +55,7 @@ function safeJsonParse(text, fallback = null) {
   try { return JSON.parse(text); } catch (_) { return fallback; }
 }
 
-function bodyPreview(body, n = 180) {
+function bodyPreview(body, n = 220) {
   if (!body) return '';
   const s = String(body).replace(/\s+/g, ' ').trim();
   return s.length > n ? s.slice(0, n) + '...' : s;
@@ -74,11 +82,19 @@ function getRectangleCenter(rectangle) {
   }
 }
 
+function normalizeCityName(cityField) {
+  if (!cityField) return '';
+  if (typeof cityField === 'string') return cityField;
+  if (Array.isArray(cityField)) return cityField.filter(Boolean).join('');
+  return '';
+}
+
 async function main() {
   try {
     const location = await getUserLocation();
 
     const subtitle = `${location.city || ''}${location.district ? ' ' + location.district : ''}（${location.source}）`;
+
     const weather = await getWeather(location);
 
     const message = formatWeatherMessage(weather);
@@ -94,15 +110,18 @@ async function main() {
 }
 
 /**
- * 获取用户位置（尽量拿到经纬度）
+ * 获取用户位置（尽量拿到经纬度；并标注来源）
  */
 async function getUserLocation() {
-  // 0) 手动覆盖优先
-  if (CONFIG.locationOverride && String(CONFIG.locationOverride).trim()) {
-    return await getLocationByOverride(String(CONFIG.locationOverride).trim());
+  // 0) 覆盖优先
+  const override = String(CONFIG.locationOverride || '').trim();
+  if (override) {
+    const loc = await getLocationByOverride(override);
+    loc.source = '覆盖';
+    return loc;
   }
 
-  // 1) GPS 优先（但失败会回退）
+  // 1) GPS 优先（失败回退）
   if (CONFIG.useGPS && typeof $location !== "undefined" && $location) {
     try {
       const gps = await getLocationByGPS();
@@ -129,12 +148,11 @@ async function getLocationByOverride(override) {
       district: info.district || '',
       adcode: info.adcode || '',
       longitude: lon,
-      latitude: lat,
-      source: '覆盖'
+      latitude: lat
     };
   }
 
-  // 文本 -> 高德地理编码 -> 坐标 -> 逆地理补全区县
+  // 文本 -> 地理编码 -> 逆地理
   const geo = await geocodeByAddress(override);
   if (!geo) throw new Error('位置覆盖解析失败：请填写 "经度,纬度" 或可识别的城市/区县文本');
 
@@ -145,8 +163,7 @@ async function getLocationByOverride(override) {
     district: info.district || '',
     adcode: info.adcode || '',
     longitude: geo.longitude,
-    latitude: geo.latitude,
-    source: '覆盖'
+    latitude: geo.latitude
   };
 }
 
@@ -173,6 +190,7 @@ async function getLocationByIP() {
   let longitude = '';
   let latitude = '';
 
+  // 1) rectangle -> 中心点
   if (data.rectangle) {
     const center = getRectangleCenter(data.rectangle);
     if (center) {
@@ -181,7 +199,7 @@ async function getLocationByIP() {
     }
   }
 
-  // 没 rectangle 时，用地理编码兜底（精度仍然只是“城市中心点”）
+  // 2) 没 rectangle 时，地理编码兜底（仍可能偏城市中心）
   if (!longitude || !latitude) {
     const addr = city ? `${province}${city}` : province;
     const geo = await geocodeByAddress(addr);
@@ -191,10 +209,10 @@ async function getLocationByIP() {
     }
   }
 
-  // 逆地理补全区县
   let district = city || province || '未知';
   let finalCity = city || province || '未知';
 
+  // 3) 逆地理补全区县
   if (longitude && latitude) {
     const info = await getDetailedLocation(longitude, latitude);
     district = info.district || district;
@@ -217,33 +235,31 @@ async function geocodeByAddress(addressText) {
   const resp = await httpGet({ url });
 
   if (resp.status !== 200) return null;
+
   const data = safeJsonParse(resp.body, {});
   if (data.status !== '1' || !data.geocodes || !data.geocodes.length) return null;
 
   const loc = data.geocodes[0].location; // "lon,lat"
   if (!loc || typeof loc !== 'string' || !loc.includes(',')) return null;
+
   const [lon, lat] = loc.split(',');
   return { longitude: lon, latitude: lat };
 }
 
 /**
- * 获取详细地理信息（精确到区县）
+ * 逆地理：精确到区县
  */
 async function getDetailedLocation(lon, lat) {
   const url = `https://restapi.amap.com/v3/geocode/regeo?key=${CONFIG.amapApiKey}&location=${lon},${lat}&extensions=base`;
   const resp = await httpGet({ url });
 
-  if (resp.status !== 200) return { city: '', district: '未知' };
+  if (resp.status !== 200) return { province: '', city: '', district: '未知', adcode: '' };
 
   const data = safeJsonParse(resp.body, {});
   if (data.status === '1' && data.regeocode && data.regeocode.addressComponent) {
     const ac = data.regeocode.addressComponent;
 
-    const city =
-      (Array.isArray(ac.city) ? ac.city.filter(Boolean).join('') : ac.city) ||
-      ac.province ||
-      '';
-
+    const city = normalizeCityName(ac.city) || ac.province || '';
     const district = ac.district || city || '未知';
 
     return {
@@ -254,16 +270,17 @@ async function getDetailedLocation(lon, lat) {
     };
   }
 
-  return { city: '', district: '未知' };
+  return { province: '', city: '', district: '未知', adcode: '' };
 }
 
 /**
- * 通过GPS获取位置
+ * GPS -> 逆地理（需要 iOS 给 Loon 定位权限）
  */
 async function getLocationByGPS() {
   if (typeof $location === "undefined" || !$location || !$location.latitude || !$location.longitude) {
-    throw new Error("未获取到GPS定位：请在 Loon 开启定位权限");
+    throw new Error("未获取到GPS定位：请在 iOS 设置里给 Loon 开启定位权限");
   }
+
   const latitude = String($location.latitude);
   const longitude = String($location.longitude);
 
@@ -281,7 +298,7 @@ async function getLocationByGPS() {
 
 /**
  * 获取天气信息
- * 修复：只要有经纬度就直接用 lon,lat 请求（避免城市ID lookup 失败）
+ * 规则：只要有经纬度，直接用 lon,lat 请求 v7；否则才走 GeoAPI lookup
  */
 async function getWeather(location) {
   const hasCoord = location.longitude && location.latitude;
@@ -289,16 +306,12 @@ async function getWeather(location) {
     ? `${location.longitude},${location.latitude}`
     : await getQWeatherLocationId(location);
 
-  const commonHeaders = {
-    'Accept': 'application/json',
-    'User-Agent': 'Loon'
-  };
+  // v7 天气/空气（不再拼 key=；用 Header 鉴权）
+  const nowUrl = `https://${QWEATHER_HOST}/v7/weather/now?location=${encodeURIComponent(locationParam)}`;
+  const forecastUrl = `https://${QWEATHER_HOST}/v7/weather/3d?location=${encodeURIComponent(locationParam)}`;
+  const airUrl = `https://${QWEATHER_HOST}/v7/air/now?location=${encodeURIComponent(locationParam)}`;
 
-  const nowUrl = `https://${QWEATHER_HOST}/v7/weather/now?location=${encodeURIComponent(locationParam)}&key=${CONFIG.weatherApiKey}`;
-  const forecastUrl = `https://${QWEATHER_HOST}/v7/weather/3d?location=${encodeURIComponent(locationParam)}&key=${CONFIG.weatherApiKey}`;
-  const airUrl = `https://${QWEATHER_HOST}/v7/air/now?location=${encodeURIComponent(locationParam)}&key=${CONFIG.weatherApiKey}`;
-
-  const nowResp = await httpGet({ url: nowUrl, headers: commonHeaders });
+  const nowResp = await httpGet({ url: nowUrl, headers: QW_HEADERS });
   if (nowResp.status !== 200) {
     throw new Error(`天气接口HTTP失败(now): ${nowResp.status} body=${bodyPreview(nowResp.body)}`);
   }
@@ -310,30 +323,37 @@ async function getWeather(location) {
     throw new Error(`天气API错误(now): ${nowData.code}`);
   }
 
-  const forecastResp = await httpGet({ url: forecastUrl, headers: commonHeaders });
+  const forecastResp = await httpGet({ url: forecastUrl, headers: QW_HEADERS });
   const forecastData = safeJsonParse(forecastResp.body, {});
-  const today = forecastData.daily && forecastData.daily.length ? forecastData.daily[0] : {};
+  if (forecastData.code && forecastData.code !== '200') {
+    throw new Error(`天气API错误(forecast): ${forecastData.code}`);
+  }
 
-  const airResp = await httpGet({ url: airUrl, headers: commonHeaders });
+  const airResp = await httpGet({ url: airUrl, headers: QW_HEADERS });
   const airData = safeJsonParse(airResp.body, {});
-  const airNow = airData.now || {};
+  // 空气质量失败可降级，不阻断主流程
+  if (airData.code && airData.code !== '200') {
+    console.log(`空气质量接口异常: code=${airData.code} body=${bodyPreview(airResp.body)}`);
+  }
 
   return {
     now: nowData.now,
-    today,
-    air: airNow
+    today: (forecastData.daily && forecastData.daily.length) ? forecastData.daily[0] : {},
+    air: airData.now || {}
   };
 }
 
 /**
- * 无坐标时才用：GeoAPI lookup
+ * GeoAPI：无坐标时才用
  */
 async function getQWeatherLocationId(location) {
   const text = [location.district, location.city, location.province].filter(Boolean).join('');
   if (!text) throw new Error('城市ID获取失败：无坐标且无可用城市文本');
 
-  const url = `https://${QWEATHER_HOST}/geo/v2/city/lookup?location=${encodeURIComponent(text)}&key=${CONFIG.weatherApiKey}`;
-  const resp = await httpGet({ url, headers: { 'Accept': 'application/json', 'User-Agent': 'Loon' } });
+  // 注意：GeoAPI 在 Host 下路径为 /geo/v2/...
+  const url = `https://${QWEATHER_HOST}/geo/v2/city/lookup?location=${encodeURIComponent(text)}`;
+
+  const resp = await httpGet({ url, headers: QW_HEADERS });
 
   if (resp.status !== 200) {
     throw new Error(`城市ID获取失败：GeoAPI HTTP ${resp.status} body=${bodyPreview(resp.body)}`);
@@ -351,8 +371,12 @@ async function getQWeatherLocationId(location) {
   throw new Error(`城市ID获取失败：code=${data.code} query=${text}`);
 }
 
+/**
+ * 格式化天气消息
+ */
 function formatWeatherMessage(weather) {
   const { now, today, air } = weather;
+
   let message = '';
 
   message += `🌡️ 当前: ${now.text} ${now.temp}°C\n`;
@@ -395,4 +419,5 @@ function getAirQualityEmoji(category) {
   return emojiMap[category] || '🌫️';
 }
 
+// 执行
 main();
