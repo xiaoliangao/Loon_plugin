@@ -36,9 +36,9 @@ githubToken = input,"",tag=GitHub Token(可选),desc=提升 API 限额；可填 
 
 # 每日天气（区县级）
 weatherDailyEnable = switch,false,tag=每日天气推送,desc=每天推送当前所在地天气（区县级）
-qweatherApiKey = input,"",tag=和风天气Key,desc=必填；用于天气数据
+# qweatherApiKey = input,"",tag=和风天气Key,desc=必填；用于天气数据
 # 和风公共 API 域名将逐步停服（devapi 2026-01-01；api/geoapi 2026-06-01），建议填写控制台的 API Host
-amapApiKey = input,"",tag=高德Key,desc=必填；用于 IP 定位/逆地理（https://lbs.amap.com/）
+# amapApiKey = input,"",tag=高德Key,desc=必填；用于 IP 定位/逆地理（https://lbs.amap.com/）
 weatherUseGPS = switch,false,tag=天气使用GPS定位,desc=更精准，但需授予 Loon 定位权限
 weatherLocOverride = input,"",tag=天气位置覆盖(可选),desc=填 "经度,纬度" 或 城市/区县名；用于固定地点推送
 
