@@ -16,7 +16,6 @@
  * 说明：
  * - 如果抓取失败，会尝试读取缓存并推送“缓存版早报”
  */
-// 与 Stock_today 保持一致：按日期生成「YYYY-MM-DD 的奏折」
 function formatDateCN(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -244,8 +243,6 @@ function buildSummaryBody(focusCount, total, focusPushed, otherShown, reportUrl)
       lines.push(`${i + 1}. ${otherShown[i].text}`);
     }
   }
-  lines.push('');
-  lines.push(reportUrl);
   return lines.join('\n');
 }
 
