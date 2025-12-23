@@ -1,10 +1,10 @@
 /**
- * Loon脚本 - 本地天气推送（修复版）
+ * Loon脚本 - 本地天气推送（完全修复版）
  * Cron: 0 8 * * *
  * 每天早上8点执行
  */
 
-// ============ 配置区域（按你要求：内置） ============
+// ============ 配置区域 ============
 const CONFIG = {
   // 和风天气 API KEY
   weatherApiKey: 'b7583671face461ab6423cdc8b665473',
@@ -16,17 +16,16 @@ const CONFIG = {
   notificationTitle: '🌤️ 今日天气',
 };
 
-// ============ 和风 API Host（专属域名） ============
+// ============ 和风 API Host ============
 const QWEATHER_HOST = "qn2pfyvquw.re.qweatherapi.com";
 
-// 和风鉴权：API Host 模式推荐用 Header 传 KEY
 const QW_HEADERS = {
   Accept: "application/json",
   "User-Agent": "Loon",
   "X-QW-Api-Key": CONFIG.weatherApiKey,
 };
 
-// ============ HTTP 封装（Loon：$httpClient） ============
+// ============ HTTP 封装 ============
 function httpGet(options) {
   return new Promise((resolve, reject) => {
     if (typeof $httpClient === "undefined") {
@@ -65,7 +64,6 @@ function isLonLat(str) {
   return Number.isFinite(lon) && Number.isFinite(lat) && Math.abs(lon) <= 180 && Math.abs(lat) <= 90;
 }
 
-// 解析高德 rectangle（"lon1,lat1;lon2,lat2"）并取中心点
 function getRectangleCenter(rectangle) {
   try {
     const [p1, p2] = rectangle.split(";");
@@ -85,48 +83,96 @@ function normalizeCityName(cityField) {
   return "";
 }
 
-// ============ 解析插件传参（位置覆盖） ============
+// ============ 解析插件传参 - 关键修复 ============
+/**
+ * Loon 插件参数传递说明：
+ * 
+ * 如果在 .plugin 文件中这样配置：
+ *   argument=weatherLocation={weatherLocation}
+ * 
+ * 那么 $argument 的值可能是：
+ * 1. 如果用户填了 "上海 浦东新区"，则 $argument = "weatherLocation=上海 浦东新区"
+ * 2. 如果用户没填，则 $argument = "weatherLocation={weatherLocation}" （未替换）
+ * 3. 也可能直接是用户填的值（取决于 Loon 版本）
+ */
 function parseArgumentLocation() {
-  if (typeof $argument === "undefined" || $argument === null) return "";
+  if (typeof $argument === "undefined" || $argument === null) {
+    console.log("[parseArgumentLocation] $argument 未定义，使用 IP 定位");
+    return "";
+  }
 
-  // object 形式
+  console.log(`[parseArgumentLocation] $argument 类型: ${typeof $argument}`);
+  console.log(`[parseArgumentLocation] $argument 原始值: ${JSON.stringify($argument)}`);
+
+  // 处理 object 形式
   if (typeof $argument === "object") {
-    return String($argument.weatherLocation || $argument.location || $argument.loc || "").trim();
+    const loc = String($argument.weatherLocation || $argument.location || $argument.loc || "").trim();
+    console.log(`[parseArgumentLocation] object 形式，提取: ${loc}`);
+    return isPlaceholder(loc) ? "" : loc;
   }
 
   const raw = String($argument).trim();
-  if (!raw) return "";
+  if (!raw) {
+    console.log("[parseArgumentLocation] 参数为空，使用 IP 定位");
+    return "";
+  }
 
-  console.log(`[DEBUG] 原始参数: ${raw}`);
-
-  // JSON
+  // JSON 格式
   if ((raw.startsWith("{") && raw.endsWith("}")) || (raw.startsWith("[") && raw.endsWith("]"))) {
     const obj = safeJsonParse(raw, null);
     if (obj && typeof obj === "object") {
-      return String(obj.weatherLocation || obj.location || obj.loc || "").trim();
+      const loc = String(obj.weatherLocation || obj.location || obj.loc || "").trim();
+      console.log(`[parseArgumentLocation] JSON 形式，提取: ${loc}`);
+      return isPlaceholder(loc) ? "" : loc;
     }
   }
 
-  // k=v 格式（重点修复：处理 weatherLocation=xxx 这种格式）
+  // k=v 格式：weatherLocation=xxx
   if (raw.includes("=")) {
-    const parts = raw.split(/[&;,]/).map((s) => s.trim()).filter(Boolean);
-    const kv = {};
+    const parts = raw.split(/[&;]/).map((s) => s.trim()).filter(Boolean);
     for (const p of parts) {
       const idx = p.indexOf("=");
       if (idx <= 0) continue;
-      const k = decodeURIComponent(p.slice(0, idx).trim());
-      const v = decodeURIComponent(p.slice(idx + 1).trim());
-      kv[k] = v;
-      console.log(`[DEBUG] 解析参数: ${k} = ${v}`);
+      const k = p.slice(0, idx).trim();
+      const v = p.slice(idx + 1).trim();
+      
+      console.log(`[parseArgumentLocation] 解析 k=v: ${k} = ${v}`);
+      
+      // 匹配 weatherLocation / location / loc
+      if (k === "weatherLocation" || k === "location" || k === "loc") {
+        // 检查是否是占位符（未替换）
+        if (isPlaceholder(v)) {
+          console.log(`[parseArgumentLocation] 检测到未替换的占位符: ${v}，使用 IP 定位`);
+          return "";
+        }
+        console.log(`[parseArgumentLocation] 提取位置: ${v}`);
+        return v;
+      }
     }
-    const result = String(kv.weatherLocation || kv.location || kv.loc || "").trim();
-    console.log(`[DEBUG] 提取的位置: ${result}`);
-    return result;
   }
 
-  // 纯字符串：直接当位置
-  console.log(`[DEBUG] 直接使用位置: ${raw}`);
+  // 纯字符串：直接当位置（但需要检查是否是占位符）
+  if (isPlaceholder(raw)) {
+    console.log(`[parseArgumentLocation] 检测到未替换的占位符: ${raw}，使用 IP 定位`);
+    return "";
+  }
+  
+  console.log(`[parseArgumentLocation] 直接使用位置: ${raw}`);
   return raw;
+}
+
+/**
+ * 判断是否是未替换的占位符
+ */
+function isPlaceholder(str) {
+  if (!str || typeof str !== "string") return false;
+  const s = str.trim();
+  // 检查常见的占位符格式
+  return s.startsWith("{") && s.endsWith("}") || 
+         s === "weatherLocation" ||
+         s === "{weatherLocation}" ||
+         s === "${weatherLocation}" ||
+         s === "{{weatherLocation}}";
 }
 
 // ============ 主流程 ============
@@ -145,37 +191,30 @@ async function main() {
     console.log("=== 天气推送成功 ===");
   } catch (error) {
     console.log(`错误详情: ${error.message}`);
-    console.log(`错误堆栈: ${error.stack}`);
+    if (error.stack) console.log(`错误堆栈: ${error.stack}`);
     $notification.post("❌ 天气获取失败", "", error && error.message ? error.message : String(error));
   } finally {
     $done();
   }
 }
 
-/**
- * 获取用户位置
- * 优先：插件设置填写的位置（市 区县 / 经度,纬度）
- * 兜底：高德 IP
- */
 async function getUserLocation() {
   const override = parseArgumentLocation();
-  console.log(`[getUserLocation] 设置的位置: "${override}"`);
+  console.log(`[getUserLocation] 解析后的位置: "${override}"`);
   
   if (override) {
+    console.log("[getUserLocation] 使用设置的位置");
     const loc = await getLocationByOverride(override);
     loc.source = "设置";
     return loc;
   }
 
-  console.log("[getUserLocation] 使用IP定位");
+  console.log("[getUserLocation] 使用 IP 定位");
   const ip = await getLocationByIP();
   ip.source = "IP";
   return ip;
 }
 
-/**
- * 解析"设置位置"：支持 lon,lat 或 "市 区县"
- */
 async function getLocationByOverride(override) {
   const text = String(override).trim();
   console.log(`[getLocationByOverride] 处理位置: "${text}"`);
@@ -195,23 +234,22 @@ async function getLocationByOverride(override) {
     };
   }
 
-  // 文本格式：支持 "上海市 浦东新区" 或 "上海 浦东新区" 或 "浦东新区"
+  // 文本格式：支持多种地名格式
   console.log("[getLocationByOverride] 识别为地名格式");
   
-  // 移除常见的"市"、"省"等后缀，提高匹配率
+  // 移除常见后缀
   const cleanText = text.replace(/[省市区县]/g, "");
   const tokens = cleanText.split(/\s+/).filter(Boolean);
   
   console.log(`[getLocationByOverride] 清理后的tokens: ${JSON.stringify(tokens)}`);
   
-  // 尝试多种组合方式
+  // 构建多种搜索组合
   const searches = [];
   
   if (tokens.length >= 2) {
-    // "上海 浦东" -> 尝试 "上海市浦东新区"、"上海浦东"、"浦东"
-    searches.push(tokens.join(""));  // 连接所有
-    searches.push(tokens[tokens.length - 1]);  // 最后一个（通常是区县）
-    searches.push(tokens[0] + tokens[tokens.length - 1]);  // 首 + 尾
+    searches.push(tokens.join(""));  // 连接所有：上海浦东
+    searches.push(tokens[tokens.length - 1]);  // 最后一个：浦东
+    searches.push(tokens[0] + tokens[tokens.length - 1]);  // 首 + 尾：上海浦东
   } else if (tokens.length === 1) {
     searches.push(tokens[0]);
   } else {
@@ -221,6 +259,7 @@ async function getLocationByOverride(override) {
   console.log(`[getLocationByOverride] 尝试搜索: ${JSON.stringify(searches)}`);
 
   // 依次尝试
+  let lastError = null;
   for (let i = 0; i < searches.length; i++) {
     const address = searches[i];
     const cityHint = tokens.length >= 1 ? tokens[0] : "";
@@ -243,33 +282,36 @@ async function getLocationByOverride(override) {
       }
     } catch (e) {
       console.log(`[getLocationByOverride] 第 ${i + 1} 次尝试失败: ${e.message}`);
+      lastError = e;
     }
   }
 
-  throw new Error(`位置解析失败：无法识别 "${text}"。请填写格式如：
-  - 经纬度：121.5,31.2
-  - 市+区：上海 浦东新区
-  - 仅区县：浦东新区
-  当前尝试了: ${searches.join(", ")}`);
+  throw new Error(`位置解析失败：无法识别 "${text}"
+
+请填写格式如：
+  ✅ 经纬度：121.5,31.2
+  ✅ 市+区：上海 浦东新区
+  ✅ 仅区县：浦东新区
+  ✅ 留空：使用 IP 定位
+
+当前尝试了: ${searches.join(", ")}
+${lastError ? "\n最后错误: " + lastError.message : ""}`);
 }
 
-/**
- * 高德 IP 定位（兜底）
- */
 async function getLocationByIP() {
-  console.log("[getLocationByIP] 开始IP定位");
+  console.log("[getLocationByIP] 开始 IP 定位");
   const url = `https://restapi.amap.com/v3/ip?key=${CONFIG.amapApiKey}`;
   const response = await httpGet({ url });
 
   if (response.status !== 200) {
-    throw new Error(`IP定位失败：HTTP ${response.status} body=${bodyPreview(response.body)}`);
+    throw new Error(`IP定位失败：HTTP ${response.status}`);
   }
 
   const data = safeJsonParse(response.body, {});
   console.log(`[getLocationByIP] 返回数据: ${JSON.stringify(data)}`);
   
   if (data.status !== "1") {
-    throw new Error(`高德IP定位错误: ${data.info || "unknown"} body=${bodyPreview(response.body)}`);
+    throw new Error(`高德IP定位错误: ${data.info || "unknown"}`);
   }
 
   const province = data.province || "";
@@ -279,7 +321,6 @@ async function getLocationByIP() {
   let longitude = "";
   let latitude = "";
 
-  // rectangle -> 中心点
   if (data.rectangle) {
     const center = getRectangleCenter(data.rectangle);
     if (center) {
@@ -288,7 +329,6 @@ async function getLocationByIP() {
     }
   }
 
-  // rectangle 缺失时，用地理编码兜底
   if (!longitude || !latitude) {
     const addr = city ? `${province}${city}` : province;
     console.log(`[getLocationByIP] 使用地理编码获取坐标: ${addr}`);
@@ -318,9 +358,6 @@ async function getLocationByIP() {
   };
 }
 
-/**
- * 高德地理编码：文本 -> 坐标
- */
 async function geocodeByAddress(addressText, cityHint) {
   if (!addressText) return null;
   
@@ -355,9 +392,6 @@ async function geocodeByAddress(addressText, cityHint) {
   return { longitude: lon, latitude: lat };
 }
 
-/**
- * 高德逆地理：坐标 -> 省/市/区县
- */
 async function getDetailedLocation(lon, lat) {
   const url = `https://restapi.amap.com/v3/geocode/regeo?key=${CONFIG.amapApiKey}&location=${lon},${lat}&extensions=base`;
   console.log(`[getDetailedLocation] 逆地理编码: ${lon}, ${lat}`);
@@ -382,9 +416,6 @@ async function getDetailedLocation(lon, lat) {
   return { province: "", city: "", district: "未知", adcode: "" };
 }
 
-/**
- * 和风天气：优先用经纬度
- */
 async function getWeather(location) {
   const hasCoord = location.longitude && location.latitude;
   const locationParam = hasCoord ? `${location.longitude},${location.latitude}` : await getQWeatherLocationId(location);
@@ -415,9 +446,6 @@ async function getWeather(location) {
   };
 }
 
-/**
- * GeoAPI：仅在没有经纬度时兜底
- */
 async function getQWeatherLocationId(location) {
   const text = [location.district, location.city, location.province].filter(Boolean).join("");
   if (!text) throw new Error("城市ID获取失败：无坐标且无可用城市文本");
@@ -436,7 +464,6 @@ async function getQWeatherLocationId(location) {
   throw new Error(`城市ID获取失败：code=${data.code} query=${text}`);
 }
 
-// ============ 通知内容 ============
 function formatWeatherMessage(weather) {
   const { now, today, air } = weather;
   let message = "";
