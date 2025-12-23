@@ -183,8 +183,15 @@ function parseLocationFromArgument() {
   
   // 情况3：直接是位置值（无 k=v 格式）
   // 例如：argument="120.354591,30.313967" 或 argument="杭州 余杭区"
-  console.log(`✓ 参数直接作为位置: "${raw}"`);
-  return raw;
+  // 这是推荐的新格式！
+  if (!isPlaceholder(raw)) {
+    console.log(`✓ 参数直接作为位置: "${raw}"`);
+    return raw;
+  }
+  
+  // 如果是占位符，返回空字符串
+  console.log(`✗ 参数是占位符: "${raw}"`);
+  return "";
 }
 
 // ============ 主流程 ============
