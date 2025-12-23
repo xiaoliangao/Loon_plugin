@@ -47,7 +47,7 @@ cron "35 9 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon
 cron "0 9 * * 1" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/github-ai-trending.js, tag=GitHub AI周报, argument=[{netNode},{githubToken},{githubMinStars},{githubMaxResults},{githubTopics}], enable={githubWeeklyEnable}
 
 # 每日天气（区县级）- 默认每天 08:00
-cron "0 8 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/local-weather-push.js, tag=每日天气, timeout=60, argument={weatherLocation}, enable={weatherDailyEnable}
+cron "0 8 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/local-weather-push.js, tag=每日天气, timeout=60, argument=[{weatherLocation}], enable={weatherDailyEnable}
 
 # 行情推送：
 # - A股/港股/基金：开盘后每隔几个小时推送一次 + 收盘总结
