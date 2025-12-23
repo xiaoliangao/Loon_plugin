@@ -17,6 +17,9 @@ async function main() {
   const args = parseArgs();
   const cfg = {
     qKey: String(args.qweatherApiKey || '').trim(),
+    // 和风 API Host（2025-04 起推荐使用；用于替代 devapi/api/geoapi 公共域名）
+    // 形如：qn2pfyvquw.re.qweatherapi.com
+    qHost: normalizeHost(args.qweatherHost),
     amapKey: String(args.amapApiKey || '').trim(),
     useGPS: toBool(args.weatherUseGPS, false),
     override: String(args.weatherLocOverride || '').trim(),
@@ -138,9 +141,11 @@ async function geocodeText(cfg, text) {
 async function getWeather(cfg, loc) {
   const locationId = await getQWeatherLocationId(cfg, loc);
 
-  const nowUrl = `https://devapi.qweather.com/v7/weather/now?location=${encodeURIComponent(locationId)}&key=${encodeURIComponent(cfg.qKey)}`;
-  const forecastUrl = `https://devapi.qweather.com/v7/weather/3d?location=${encodeURIComponent(locationId)}&key=${encodeURIComponent(cfg.qKey)}`;
-  const airUrl = `https://devapi.qweather.com/v7/air/now?location=${encodeURIComponent(locationId)}&key=${encodeURIComponent(cfg.qKey)}`;
+  const base = cfg.qHost ? `https://${cfg.qHost}` : 'https://devapi.qweather.com';
+
+  const nowUrl = `${base}/v7/weather/now?location=${encodeURIComponent(locationId)}&key=${encodeURIComponent(cfg.qKey)}`;
+  const forecastUrl = `${base}/v7/weather/3d?location=${encodeURIComponent(locationId)}&key=${encodeURIComponent(cfg.qKey)}`;
+  const airUrl = `${base}/v7/air/now?location=${encodeURIComponent(locationId)}&key=${encodeURIComponent(cfg.qKey)}`;
 
   const [nowResp, fcResp, airResp] = await Promise.all([
     httpGet(nowUrl, {}, cfg.node),
@@ -168,7 +173,12 @@ async function getQWeatherLocationId(cfg, loc) {
   // 优先：如果有经纬度，用经纬度 lookup 最准确
   const hasLonLat = loc && loc.longitude && loc.latitude;
   const keyword = hasLonLat ? `${loc.longitude},${loc.latitude}` : (loc.district || loc.city || '');
-  const url = `https://geoapi.qweather.com/v2/city/lookup?location=${encodeURIComponent(keyword)}&key=${encodeURIComponent(cfg.qKey)}`;
+
+  // 若配置了 API Host，则按官方迁移要求：/geo/v2/city/lookup
+  // 否则兼容旧 GeoAPI 域名：/v2/city/lookup
+  const url = cfg.qHost
+    ? `https://${cfg.qHost}/geo/v2/city/lookup?location=${encodeURIComponent(keyword)}&key=${encodeURIComponent(cfg.qKey)}`
+    : `https://geoapi.qweather.com/v2/city/lookup?location=${encodeURIComponent(keyword)}&key=${encodeURIComponent(cfg.qKey)}`;
 
   const resp = await httpGet(url, {}, cfg.node);
   const data = safeJson(resp.body, {});
@@ -176,6 +186,13 @@ async function getQWeatherLocationId(cfg, loc) {
     return data.location[0].id;
   }
   throw new Error('和风城市 ID 获取失败：请检查定位/覆盖位置是否正确');
+}
+
+function normalizeHost(v) {
+  let h = String(v || '').trim();
+  if (!h) return '';
+  h = h.replace(/^https?:\/\//i, '').replace(/\/+$/g, '');
+  return h;
 }
 
 /* ------------------------- 文本格式化 ------------------------- */
