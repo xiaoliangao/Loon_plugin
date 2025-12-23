@@ -18,6 +18,46 @@ const TENCENT_API = 'https://qt.gtimg.cn/q=';
 const FUNDGZ_API = 'https://fundgz.1234567.com.cn/js/';  // 例：.../012414.js
 const TIMEOUT_MS = 15000;
 
+/**
+ * 推送时段（以设备本地时间为准）
+ *
+ * 设计目标：
+ * - 插件里会配置多个 cron 时刻（覆盖 A股/港股/美股/基金）。
+ * - 脚本每次触发时只推送“当前时段对应市场”的代码，避免出现“美股时段推 A股”等无意义推送。
+ * - 若当前时段没有任何可推送的市场代码，脚本会静默退出（不发通知）。
+ */
+const PUSH_SLOTS_COMMON = {
+  // 09:40：A股/港股开盘后；基金估值也有意义
+  '09:40': { markets: ['CN', 'HK', 'FUND'], label: 'A股/港股 开盘后' },
+  // 11:30：A股午间（收盘前后）
+  '11:30': { markets: ['CN', 'FUND'], label: 'A股 午间' },
+  // 12:00：港股午间（午休前后）
+  '12:00': { markets: ['HK'], label: '港股 午间' },
+  // 14:00：盘中复盘（A股/港股均在交易；基金估值更新）
+  '14:00': { markets: ['CN', 'HK', 'FUND'], label: '盘中' },
+  // 15:05：A股收盘后
+  '15:05': { markets: ['CN', 'FUND'], label: 'A股 收盘' },
+  // 16:05：港股收盘后
+  '16:05': { markets: ['HK'], label: '港股 收盘' },
+};
+
+const PUSH_SLOTS_US = {
+  // 夏令时（以北京时间常见配置为例：开盘 21:30，收盘 04:00）
+  SUMMER: {
+    '21:40': { markets: ['US'], label: '美股 开盘后' },
+    '00:40': { markets: ['US'], label: '美股 盘中' },
+    '03:40': { markets: ['US'], label: '美股 盘中' },
+    '04:05': { markets: ['US'], label: '美股 收盘' },
+  },
+  // 冬令时（以北京时间常见配置为例：开盘 22:30，收盘 05:00）
+  WINTER: {
+    '22:40': { markets: ['US'], label: '美股 开盘后' },
+    '01:40': { markets: ['US'], label: '美股 盘中' },
+    '04:40': { markets: ['US'], label: '美股 盘中' },
+    '05:05': { markets: ['US'], label: '美股 收盘' },
+  },
+};
+
 
 function hostOf(url) {
   const m = String(url || '').match(/^https?:\/\/([^\/]+)/i);
@@ -60,11 +100,14 @@ function pickEffectiveArgs(args) {
   // argument 优先，其次读取插件 UI（$persistentStore）
   const stockCodesArg = (args && (args.stockCodes || args.codes || args.code || args.list)) || '';
   const nodeArg = (args && (args.node || args.netNode)) || '';
+  const usTimeModeArg = (args && (args.usTimeMode || args.usSeason || args.usTime || args.usDstMode)) || '';
 
   const stockCodes = (!stockCodesArg || isPlaceholder(stockCodesArg)) ? readUI('stockCodes', '') : String(stockCodesArg);
   const node = (!nodeArg || isPlaceholder(nodeArg)) ? readUI('netNode', '') : String(nodeArg);
+  const usTimeModeRaw = (!usTimeModeArg || isPlaceholder(usTimeModeArg)) ? readUI('usTimeMode', 'SUMMER') : String(usTimeModeArg);
+  const usTimeMode = String(usTimeModeRaw || '').trim().toUpperCase();
 
-  return { stockCodes: stockCodes.trim(), node: node.trim() };
+  return { stockCodes: stockCodes.trim(), node: node.trim(), usTimeMode };
 }
 
 
@@ -72,10 +115,21 @@ function main() {
   const args = parseArgs();
   console.log(`📋 参数类型: ${typeof $argument}`);
   console.log(`📋 参数内容: ${typeof $argument === 'string' ? $argument : JSON.stringify($argument)}`);
-    const eff = pickEffectiveArgs(args);
+  const eff = pickEffectiveArgs(args);
   console.log(`📋 输入(插件设置): ${readUI("stockCodes","")}`);
   console.log(`✅ 生效 codes: ${eff.stockCodes || "(空)"}`);
   console.log(`✅ 生效 node: ${(!eff.node || /^auto$/i.test(eff.node)) ? "(自动)" : eff.node}`);
+  console.log(`✅ 美股时制: ${eff.usTimeMode || 'SUMMER'}（SUMMER=夏令时，WINTER=冬令时）`);
+
+  const now = new Date();
+  const slot = resolvePushSlot(now, eff.usTimeMode);
+  console.log(`⏱ 当前时间: ${formatDateCN(now)} ${formatTimeKey(now)}`);
+  if (!slot) {
+    // 不是“推送时段”的触发，直接退出（用于覆盖多 cron 的“合集配置”）
+    console.log('⏭ 当前不在推送时段，静默退出');
+    return $done();
+  }
+  console.log(`🕒 触发时段: ${slot.label}（${slot.key}） markets=${slot.markets.join(',')}`);
 
   const node = pickNode(eff.node || "");
   const raw = (eff.stockCodes || "").trim();
@@ -102,34 +156,33 @@ function main() {
   console.log(`🌐 代理策略(prefer): ${node || '(默认)'}`);
   console.log('🌐 行情接口：默认使用 DIRECT（直连）');
 
-  const uniqTencent = [];
-  const fundList = [];
-  const unresolved = [];
+  // 1) 先对用户输入做“市场归类”，
+  // 2) 再根据当前推送时段(slot.markets)过滤，仅请求/推送对应市场
+  const split = splitInputByMarket(inputList);
+  if (split.unresolved.length) console.log('⚠️ 无法识别: ' + split.unresolved.join(','));
 
-  inputList.forEach(s => {
-    const parsed = parseCode(s);
-    if (!parsed) { unresolved.push(s); return; }
-    if (parsed.kind === 'fund') fundList.push(parsed);
-    else uniqTencent.push.apply(uniqTencent, parsed.tencentCodes);
-  });
+  const tencentCodes = [];
+  if (slot.markets.includes('CN')) tencentCodes.push.apply(tencentCodes, split.tencent.CN);
+  if (slot.markets.includes('HK')) tencentCodes.push.apply(tencentCodes, split.tencent.HK);
+  if (slot.markets.includes('US')) tencentCodes.push.apply(tencentCodes, split.tencent.US);
+  const fundList = slot.markets.includes('FUND') ? split.funds : [];
 
-  if (unresolved.length) console.log('⚠️ 无法识别: ' + unresolved.join(','));
-
-  const need = (uniqTencent.length ? 1 : 0) + (fundList.length ? 1 : 0);
+  const need = (tencentCodes.length ? 1 : 0) + (fundList.length ? 1 : 0);
   if (need === 0) {
-    $notification.post(TITLE, '无有效代码', '请检查你的 stockCodes 配置。');
+    // 当前时段没有任何可推送的市场代码：静默退出
+    console.log('⏭ 当前时段无可推送代码，静默退出');
     return $done();
   }
 
   let doneCount = 0;
   let results = [];
 
-  if (uniqTencent.length) {
-    queryTencent(unique(uniqTencent), node, (err, list) => {
+  if (tencentCodes.length) {
+    queryTencent(unique(tencentCodes), node, (err, list) => {
       doneCount += 1;
       if (err) console.log('❌ 腾讯行情失败: ' + String(err));
       else results = results.concat(list || []);
-      if (doneCount === need) finish(results);
+      if (doneCount === need) finish(results, slot);
     });
   }
 
@@ -138,7 +191,7 @@ function main() {
       doneCount += 1;
       if (err) console.log('❌ 基金估值失败: ' + String(err));
       else results = results.concat(list || []);
-      if (doneCount === need) finish(results);
+      if (doneCount === need) finish(results, slot);
     });
   }
 }
@@ -259,6 +312,114 @@ function normalizeAStock(code6) {
   if (/^(60|68|51|52|53|56|58)\d{4}$/.test(code6)) return 'sh' + code6;
   if (/^(83|87|43)\d{4}$/.test(code6)) return 'bj' + code6;
   return null;
+}
+
+/** ---------- 推送时段与市场过滤 ---------- */
+function formatTimeKey(d) {
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function resolvePushSlot(now, usTimeMode) {
+  const key = formatTimeKey(now);
+  if (PUSH_SLOTS_COMMON[key]) return Object.assign({ key }, PUSH_SLOTS_COMMON[key]);
+
+  const mode = (String(usTimeMode || '').trim().toUpperCase() === 'WINTER') ? 'WINTER' : 'SUMMER';
+  const slot = (PUSH_SLOTS_US[mode] || {})[key];
+  if (slot) return Object.assign({ key }, slot);
+
+  return null;
+}
+
+function marketFromTencentCode(code) {
+  const c = String(code || '').toLowerCase();
+  if (c.startsWith('hk')) return 'HK';
+  if (c.startsWith('us') || c.startsWith('s_us')) return 'US';
+  return 'CN';
+}
+
+function splitInputByMarket(inputList) {
+  const tencent = { CN: [], HK: [], US: [] };
+  const funds = [];
+  const unresolved = [];
+
+  (inputList || []).forEach(s => {
+    const parsed = parseCode(s);
+    if (!parsed) {
+      unresolved.push(s);
+      return;
+    }
+    if (parsed.kind === 'fund') {
+      funds.push(parsed);
+      return;
+    }
+    (parsed.tencentCodes || []).forEach(tc => {
+      const mk = marketFromTencentCode(tc);
+      if (mk === 'HK') tencent.HK.push(tc);
+      else if (mk === 'US') tencent.US.push(tc);
+      else tencent.CN.push(tc);
+    });
+  });
+
+  // 去重
+  tencent.CN = unique(tencent.CN);
+  tencent.HK = unique(tencent.HK);
+  tencent.US = unique(tencent.US);
+
+  const fundSeen = {};
+  const fundUniq = [];
+  funds.forEach(f => {
+    const k = String(f.fundCode || '').trim();
+    if (!k || fundSeen[k]) return;
+    fundSeen[k] = 1;
+    fundUniq.push(f);
+  });
+
+  return { tencent, funds: fundUniq, unresolved };
+}
+
+function buildBodyForSlot(groups, slot) {
+  const markets = (slot && slot.markets) ? slot.markets : ['CN', 'HK', 'US', 'FUND'];
+  const lines = [];
+
+  const counts = [];
+  if (markets.includes('CN') && groups.CN.length) counts.push(`A股/指数 ${groups.CN.length}`);
+  if (markets.includes('HK') && groups.HK.length) counts.push(`港股 ${groups.HK.length}`);
+  if (markets.includes('US') && groups.US.length) counts.push(`美股 ${groups.US.length}`);
+  if (markets.includes('FUND') && groups.FUND.length) counts.push(`场外基金 ${groups.FUND.length}`);
+  if (counts.length) lines.push(`共：${counts.join(' | ')}`);
+
+  // 逐段展示；为避免通知长度被截断，每组最多展示一定数量
+  const MAX_QUOTE = 10;
+  const MAX_FUND = 10;
+
+  if (markets.includes('CN') && groups.CN.length) {
+    lines.push('【A股/指数】');
+    groups.CN.slice(0, MAX_QUOTE).forEach(it => lines.push(formatQuoteShort(it)));
+    if (groups.CN.length > MAX_QUOTE) lines.push(`…共${groups.CN.length}个，仅显示前${MAX_QUOTE}个`);
+    lines.push('');
+  }
+  if (markets.includes('HK') && groups.HK.length) {
+    lines.push('【港股】');
+    groups.HK.slice(0, MAX_QUOTE).forEach(it => lines.push(formatQuoteShort(it)));
+    if (groups.HK.length > MAX_QUOTE) lines.push(`…共${groups.HK.length}个，仅显示前${MAX_QUOTE}个`);
+    lines.push('');
+  }
+  if (markets.includes('US') && groups.US.length) {
+    lines.push('【美股】');
+    groups.US.slice(0, MAX_QUOTE).forEach(it => lines.push(formatQuoteShort(it)));
+    if (groups.US.length > MAX_QUOTE) lines.push(`…共${groups.US.length}个，仅显示前${MAX_QUOTE}个`);
+    lines.push('');
+  }
+  if (markets.includes('FUND') && groups.FUND.length) {
+    lines.push('【场外基金】');
+    groups.FUND.slice(0, MAX_FUND).forEach(it => lines.push(formatFundShort(it)));
+    if (groups.FUND.length > MAX_FUND) lines.push(`…共${groups.FUND.length}个，仅显示前${MAX_FUND}个`);
+    lines.push('');
+  }
+
+  return lines.join('\n').trim();
 }
 
 /** ---------- 腾讯行情 ---------- */
@@ -470,35 +631,20 @@ function parseFundGz(fundCode, body) {
 }
 
 /** ---------- 输出 ---------- */
-function finish(items) {
+function finish(items, slot) {
   if (!items || !items.length) {
-    $notification.post(TITLE, '无数据', '本次未获取到行情数据，请检查网络/节点或代码是否有效。');
+    $notification.post(TITLE, (slot && slot.label) || '无数据', '本次未获取到行情数据，请检查网络/节点或代码是否有效。');
     return $done();
   }
 
   const groups = groupByMarket(items);
-  const summary = `A股/指数 ${groups.CN.length} | 港股 ${groups.HK.length} | 美股 ${groups.US.length} | 场外基金 ${groups.FUND.length}`;
-  console.log('📣 ' + summary);
+  const body = buildBodyForSlot(groups, slot);
+  const subtitle = (slot && slot.label) ? `${slot.label} · ${slot.key}` : '行情';
 
-  // 先发一个汇总，避免漏看
-  $notification.post(TITLE, '汇总', summary);
-
-  // 分组分条推送，避免单条通知被截断
-  postGroupNotify('A股/指数', groups.CN || [], formatQuoteShort);
-  postGroupNotify('港股', groups.HK || [], formatQuoteShort);
-  postGroupNotify('美股', groups.US || [], formatQuoteShort);
-  postGroupNotify('场外基金', groups.FUND || [], formatFundShort);
-
+  console.log('📣 推送：' + subtitle);
+  console.log(body);
+  $notification.post(TITLE, subtitle, body);
   return $done();
-}
-
-function postGroupNotify(groupTitle, list, formatter) {
-  if (!list || !list.length) return;
-  const MAX = 12;
-  const show = list.slice(0, MAX);
-  const body = show.map(formatter).join('\n') + (list.length > MAX ? `\n…共${list.length}个，已显示前${MAX}个` : '');
-  console.log(`📣【${groupTitle}】\n${body}`);
-  $notification.post(TITLE, groupTitle, body);
 }
 
 function formatQuoteShort(it) {
