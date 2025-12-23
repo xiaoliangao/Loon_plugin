@@ -25,7 +25,7 @@ stockEnable = switch,true,tag=行情推送,desc=推送“较昨收涨跌”为�
 # 以北京时间常见配置为例：
 # - 夏令时：开盘 21:30，收盘 04:00
 # - 冬令时：开盘 22:30，收盘 05:00
-usTimeMode = select,"SUMMER","SUMMER","WINTER",tag=美股时制(冬/夏令时),desc=SUMMER=夏令时；WINTER=冬令时（仅影响美股推送时段过滤；若你的 cron 用的是其它时区，请按需调整 cron 时间）
+usTimeMode = select,"SUMMER","WINTER",tag=美股时制(冬/夏令时),desc=SUMMER=夏令时；WINTER=冬令时（仅影响美股推送时段过滤；若你的 cron 用的是其它时区，请按需调整 cron 时间）
 
 [Script]
 # 你需要把下面两个 script-path 改成你自己的 GitHub raw 地址（推荐 fork 本仓库）。脚本会直接从插件“设置”里读取 stockCodes/netNode/aiMax/aiKw（不依赖 argument 变量替换）。
