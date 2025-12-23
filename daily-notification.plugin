@@ -25,12 +25,34 @@ stockEnable = switch,true,tag=行情推送,desc=推送“较昨收涨跌”为�
 # 以北京时间常见配置为例：
 # - 夏令时：开盘 21:30，收盘 04:00
 # - 冬令时：开盘 22:30，收盘 05:00
-usTimeMode = select,"SUMMER","WINTER",tag=美股时制(冬/夏令时),desc=SUMMER=夏令时；WINTER=冬令时（仅影响美股推送时段过滤；若你的 cron 用的是其它时区，请按需调整 cron 时间）
+usTimeMode = select,"SUMMER","SUMMER","WINTER",tag=美股时制(冬/夏令时),desc=SUMMER=夏令时；WINTER=冬令时（仅影响美股推送时段过滤；若你的 cron 用的是其它时区，请按需调整 cron 时间）
+
+# GitHub 周报（每周一）
+githubWeeklyEnable = switch,false,tag=GitHub AI项目周报,desc=每周一抓取 GitHub AI/LLM 新项目并推送
+githubMinStars = input,"100",tag=GitHub最低Stars,desc=仅推送 stars>=该值 的候选（默认 100）
+githubMaxResults = input,"5",tag=GitHub推送数量,desc=每次推送最多多少个项目（建议 3-5，避免通知过长）
+githubTopics = input,"artificial-intelligence,machine-learning,deep-learning,llm,gpt",tag=GitHub Topics,desc=英文逗号分隔；用于 topic: 查询
+githubToken = input,"",tag=GitHub Token(可选),desc=提升 API 限额；可填 PAT 或 "Bearer xxx"
+
+# 每日天气（区县级）
+weatherDailyEnable = switch,false,tag=每日天气推送,desc=每天推送当前所在地天气（区县级）
+qweatherApiKey = input,"",tag=和风天气Key,desc=必填；用于天气数据（https://dev.qweather.com/）
+amapApiKey = input,"",tag=高德Key,desc=必填；用于 IP 定位/逆地理（https://lbs.amap.com/）
+weatherUseGPS = switch,false,tag=天气使用GPS定位,desc=更精准，但需授予 Loon 定位权限
+weatherLocOverride = input,"",tag=天气位置覆盖(可选),desc=填 "经度,纬度" 或 城市/区县名；用于固定地点推送
+
 
 [Script]
 # 你需要把下面两个 script-path 改成你自己的 GitHub raw 地址（推荐 fork 本仓库）。脚本会直接从插件“设置”里读取 stockCodes/netNode/aiMax/aiKw（不依赖 argument 变量替换）。
 # AI前沿早报 - 默认每天 08:30
 cron "35 9 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/ai-morning-news.js, tag=Ai_news, timeout=120, argument=[{netNode},{aiMax},{aiKw}], enable={aiNewsEnable}
+
+# GitHub AI 项目周报 - 默认每周一 09:00
+cron "0 9 * * 1" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/github-ai-trending.js, tag=GitHub AI周报, argument=[{netNode},{githubToken},{githubMinStars},{githubMaxResults},{githubTopics}], enable={githubWeeklyEnable}
+
+# 每日天气（区县级）- 默认每天 08:00
+cron "0 8 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/local-weather-push.js, tag=每日天气, argument=[{netNode},{qweatherApiKey},{amapApiKey},{weatherUseGPS},{weatherLocOverride}], enable={weatherDailyEnable}
+
 
 # 行情推送：
 # - A股/港股/基金：开盘后每隔几个小时推送一次 + 收盘总结
