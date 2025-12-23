@@ -122,13 +122,14 @@ async function getUserLocation() {
   }
 
   // 1) GPS 优先（失败回退）
-  if (CONFIG.useGPS && typeof $location !== "undefined" && $location) {
-    try {
+  if (CONFIG.useGPS && typeof $location !== "undefined") {
+    const loc = $location || {};
+    if (loc.latitude && loc.longitude) {
       const gps = await getLocationByGPS();
       gps.source = 'GPS';
       return gps;
-    } catch (e) {
-      console.log(`GPS不可用，回退IP定位：${e.message || e}`);
+    } else {
+      $notification.post('定位调试', '', `未拿到GPS：$location=${JSON.stringify(loc)}`);
     }
   }
 
