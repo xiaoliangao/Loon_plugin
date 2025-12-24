@@ -1,7 +1,7 @@
 #!name= yyyy的奏折
-#!desc= 1) AI前沿早报 2) 支持 A股/港股/美股/场外基金
+#!desc= 1) AI前沿早报 2）天气推送 3）github项目推送 4) 支持 A股/港股/美股/场外基金
 #!author= yyyy
-#!homepage= https://github.com/xiaoliangao/Loon_plugin
+#!homepage= https://github.com/xiaoliangao/Loon_plugin/README.md
 #!icon= https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/icon.png
 #!system= iOS
 #!loon_version= 3.2.1(733)
@@ -18,14 +18,14 @@ netNode = select,"AUTO","DIRECT",tag=脚本网络策略组/节点(可选),desc=A
 aiMax = input,"8",tag=AI早报条数(可选),desc=最多推送多少条（默认 8）
 aiKw = input,"",tag=AI早报关键词(可选),desc=英文逗号分隔，例如：deepseek,gemini,gpt,grok,claude,agent,rag,mcp
 
-aiNewsEnable = switch,true,tag=AI技术早报(AICPB)推送,desc=每天早上推送大模型与Agent/RAG等技术更新
-stockEnable = switch,true,tag=行情推送,desc=推送“较昨收涨跌”为主的行情速览
+aiNewsEnable = switch,flase,tag=AI技术早报(AICPB)推送,desc=每天早上推送大模型与Agent/RAG等技术更新
+stockEnable = switch,flase,tag=行情推送,desc=推送“较昨收涨跌”为主的行情速览
 
 # 美股冬/夏令时：用于“多 cron 触发 + 脚本按时段过滤”方案。
 # 以北京时间常见配置为例：
 # - 夏令时：开盘 21:30，收盘 04:00
 # - 冬令时：开盘 22:30，收盘 05:00
-usTimeMode = select,"SUMMER","SUMMER","WINTER",tag=美股时制(冬/夏令时),desc=SUMMER=夏令时；WINTER=冬令时（仅影响美股推送时段过滤；若你的 cron 用的是其它时区，请按需调整 cron 时间）
+usTimeMode = select,"SUMMER","WINTER",tag=美股时制(冬/夏令时),desc=SUMMER=夏令时；WINTER=冬令时（仅影响美股推送时段过滤；若你的 cron 用的是其它时区，请按需调整 cron 时间）
 
 # GitHub 周报（每周一）
 githubWeeklyEnable = switch,false,tag=GitHub AI项目周报,desc=每周一抓取 GitHub AI/LLM 新项目并推送
@@ -46,8 +46,9 @@ cron "35 9 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon
 # GitHub AI 项目周报 - 默认每周一 09:00
 cron "0 9 * * 1" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/github-ai-trending.js, tag=GitHub AI周报, argument=[{netNode},{githubToken},{githubMinStars},{githubMaxResults},{githubTopics}], enable={githubWeeklyEnable}
 
-# 每日天气（区县级）- 默认每天 08:00
-cron "06 12 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/local-weather-push.js, tag=每日天气, timeout=60, argument=[{weatherLocation}], enable={weatherDailyEnable}
+# 每日天气（区县级）- 默认每天 08:00、13:00
+cron "0 8 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/local-weather-push.js, tag=每日天气, timeout=60, argument=[{weatherLocation}], enable={weatherDailyEnable}
+cron "0 13 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/local-weather-push.js, tag=每日天气, timeout=60, argument=[{weatherLocation}], enable={weatherDailyEnable}
 
 # 行情推送：
 # - A股/港股/基金：开盘后每隔几个小时推送一次 + 收盘总结
