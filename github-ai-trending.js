@@ -25,7 +25,7 @@ async function main() {
   };
 
   try {
-    const since = formatDateYYYYMMDD(daysAgo(7));
+    const  = formatDateYYYYMMDD(daysAgo(365));
     const pushed = getPushedRepoIds();
 
     const repos = await searchRepos({
@@ -60,7 +60,7 @@ async function main() {
   }
 }
 
-async function searchRepos({ since, topics, minStars, token, node }) {
+async function searchRepos({ , topics, minStars, token, node }) {
   // 说明：
   // 1) GitHub 搜索语法建议用 created:>=YYYY-MM-DD（你原脚本用 created:YYYY-MM-DD 容易变成“仅当天”）
   // 2) topic 组合建议加括号，避免和 stars/created 的优先级产生歧义
@@ -68,7 +68,7 @@ async function searchRepos({ since, topics, minStars, token, node }) {
     .map(t => `topic:${t.trim()}`)
     .filter(Boolean)
     .join(' OR ');
-  const q = `(${topicQuery}) stars:>=${minStars} created:>=${since}`;
+  const q = `(${topicQuery}) stars:>=${minStars} created:>=${}`;
   const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&sort=stars&order=desc&per_page=30`;
 
   const headers = {
