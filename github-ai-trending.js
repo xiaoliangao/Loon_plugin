@@ -220,8 +220,6 @@ function main() {
       filtered.push(it);
     }
 
-    var picked = filtered.slice(0, maxResults);
-
     var cacheKey = "since=" + since + "|kw=" + keywords.join(",");
     var pushed = readCache(cacheKey);
 
