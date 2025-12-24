@@ -36,6 +36,10 @@ async function main() {
       node: cfg.node,
     });
 
+    console.log(`DEBUG repos.length=${repos.length}`);
+    console.log(`DEBUG pushed.length=${pushed.length}`);
+
+
     const fresh = repos.filter(r => !pushed.includes(r.id));
     if (fresh.length === 0) {
       console.log('GitHub 周报：暂无新项目（或均已推送过）');
