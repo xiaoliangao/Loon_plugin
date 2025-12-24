@@ -7,6 +7,7 @@
  *  [0] netNode         可选：策略组/节点（AUTO 表示不指定）
  *  [1] githubMaxResults 推送数量（建议 8-15）
  *  [2] githubKeywords   关键词过滤（可选）：ai,llm,agent,rag；留空=不过滤
+ *  [3] githubSince     daily|weekly|monthly（决定推送频率，也决定Trending源 since）
  */
 
 var STORAGE_KEY = "github_trending_pushed_v1";
@@ -182,7 +183,19 @@ function main() {
   var maxResults = clamp(toInt(pickFromArgs(args, "githubMaxResults", 1, "10"), 10), 1, 30);
   var keywords = splitCsv(pickFromArgs(args, "githubKeywords", 2, ""));
 
-  var since = "weekly"; // 固定周报；如需 daily/monthly 我再给你加一个参数
+  var since = String(pickFromArgs(args, "githubSince", 3, "weekly")).trim().toLowerCase();
+  if (since !== "daily" && since !== "weekly" && since !== "monthly") since = "weekly";
+  
+  // 可选：手动测试用 force=1 绕过日期限制（不影响插件定时）
+  var force = String(pickFromArgs(args, "force", 99, "")).trim();
+  
+  var now = new Date();
+  if (force !== "1") {
+    // weekly：每周一（getDay(): 0=周日, 1=周一, ...）
+    if (since === "weekly" && now.getDay() !== 1) return $done();
+    // monthly：每月1号
+    if (since === "monthly" && now.getDate() !== 1) return $done();
+  }
   var trendingUrl = "https://github.com/trending?since=" + encodeURIComponent(since);
 
   var req = {
@@ -230,13 +243,13 @@ function main() {
     fresh = fresh.slice(0, maxResults);
 
     if (!fresh.length) {
-      $notification.post("GitHub 热点周报（weekly）", "暂无新项目（或均已推送过）", trendingUrl);
+      $notification.post("GitHub 热点(" + since + ")", "暂无新项目（或均已推送过）", trendingUrl);
       return $done();
     }
 
     // 先发一条总览（带榜单链接）
     var overviewSub = "新推送 " + fresh.length + " | 展示 " + maxResults + (keywords.length ? (" | kw " + keywords.length) : "");
-    $notification.post("🔥 GitHub 热点周报（weekly）", overviewSub, "榜单页：\n" + trendingUrl);
+    $notification.post("🔥 GitHub 热点(" + since + ")", overviewSub, "榜单页：\n" + trendingUrl);
 
     // 每个项目单独通知：避免 iOS 截断
     var newKeys = pushed.slice(0);
@@ -245,7 +258,7 @@ function main() {
       var sub = (k + 1) + "/" + fresh.length + "  ⭐" + r.stars + (r.bump ? ("（" + r.bump + "）") : "") + " | " + (r.lang || "Unknown");
       var bodyText = trimTo(r.desc || "暂无描述", 160) + "\n" + r.url;
 
-      $notification.post("🔥 GitHub 热点周报（weekly）", sub, bodyText, { "open-url": r.url, openUrl: r.url });
+      $notification.post("🔥 GitHub 热点(" + since + ")", sub, bodyText, { "open-url": r.url, openUrl: r.url });
 
       newKeys.push(r.key);
     }
