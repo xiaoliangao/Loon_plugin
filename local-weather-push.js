@@ -227,7 +227,7 @@ async function getUserLocation() {
   if (userInput) {
     console.log(`\n→ 使用指定位置: "${userInput}"`);
     const loc = await getLocationByInput(userInput);
-    loc.source = "设置";
+    loc.source = "自定义";
     return loc;
   }
   
