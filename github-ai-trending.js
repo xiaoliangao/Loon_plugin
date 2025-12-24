@@ -226,9 +226,10 @@ function main() {
     var pushed = readCache(cacheKey);
 
     var fresh = [];
-    for (var j = 0; j < picked.length; j++) {
-      if (pushed.indexOf(picked[j].key) < 0) fresh.push(picked[j]);
+    for (var j = 0; j < filtered.length; j++) {
+      if (pushed.indexOf(filtered[j].key) < 0) fresh.push(filtered[j]);
     }
+    fresh = fresh.slice(0, maxResults);
 
     if (!fresh.length) {
       $notification.post("GitHub 热点周报（weekly）", "暂无新项目（或均已推送过）", trendingUrl);
