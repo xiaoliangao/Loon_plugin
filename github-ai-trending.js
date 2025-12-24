@@ -1,225 +1,278 @@
 /**
- * Loon 脚本 - GitHub AI 项目周报
+ * Loon - GitHub 热点周报（Trending / weekly）
+ * 目标：通知不截断 => 拆分多条通知推送
  *
- * 建议 cron：每周一 09:00（设备本地时间）
- *
- * 插件参数（Argument -> 通过 argument=[{...}] 传入）：
- * - githubMinStars      最低 stars（默认 100）
- * - githubMaxResults    推送数量（默认 5，建议 3-5）
- * - githubTopics        topics（英文逗号分隔；默认 ai/ml/llm）
- * - githubToken         可选：GitHub PAT（提升 rate limit；支持填 "Bearer xxx"）
- * - netNode             可选：指定请求走某个策略组/节点（AUTO 表示不指定）
+ * 支持的参数（来自 plugin argument 数组）：
+ *  [0]=netNode
+ *  [1]=githubToken (不用也行；本脚本抓 Trending 网页，不依赖 token)
+ *  [2]=githubMinStars
+ *  [3]=githubMaxResults
+ *  [4]=githubTopics   // 关键词过滤：ai,llm,agent...
+ * 可选（如果你在 plugin 里加了更多参数，也支持）：
+ *  [5]=githubSince    // daily|weekly|monthly
+ *  [6]=githubChunkSize// 每条通知包含几个项目（建议 3-5）
+ *  [7]=githubLang     // 语言路径，如 python/javascript；留空=全站
  */
 
-const STORAGE_KEY = 'github_ai_pushed_repos_v2';
-
-async function main() {
-  const args = parseArgs();
-  const cfg = {
-    minStars: toInt(args.githubMinStars, 100),
-    maxResults: clamp(toInt(args.githubMaxResults, 5), 1, 10),
-    topics: splitCsv(args.githubTopics || 'artificial-intelligence,machine-learning,deep-learning,llm,gpt'),
-    token: String(args.githubToken || '').trim(),
-    title: '📊 本周 AI 项目精选',
-    node: pickNode(args.netNode),
-  };
-
-  try {
-    const  = formatDateYYYYMMDD(daysAgo(365));
-    const pushed = getPushedRepoIds();
-
-    const repos = await searchRepos({
-      since,
-      topics: cfg.topics,
-      minStars: cfg.minStars,
-      token: cfg.token,
-      node: cfg.node,
-    });
-
-    console.log(`DEBUG repos.length=${repos.length}`);
-    console.log(`DEBUG pushed.length=${pushed.length}`);
-
-
-    const fresh = repos.filter(r => !pushed.includes(r.id));
-    if (fresh.length === 0) {
-      console.log('GitHub 周报：暂无新项目（或均已推送过）');
-      return;
-    }
-
-    const picked = fresh.slice(0, cfg.maxResults);
-    const body = formatMessage(picked);
-
-    $notification.post(cfg.title, `发现 ${fresh.length} 个候选，推送 ${picked.length} 个`, body);
-
-    updatePushedRepoIds(pushed, picked.map(r => r.id));
-  } catch (e) {
-    console.log('GitHub 周报失败：', e && (e.stack || e.message || e));
-    $notification.post('❌ GitHub 周报失败', '', (e && e.message) ? e.message : String(e));
-  } finally {
-    $done();
-  }
-}
-
-async function searchRepos({ , topics, minStars, token, node }) {
-  // 说明：
-  // 1) GitHub 搜索语法建议用 created:>=YYYY-MM-DD（你原脚本用 created:YYYY-MM-DD 容易变成“仅当天”）
-  // 2) topic 组合建议加括号，避免和 stars/created 的优先级产生歧义
-  const topicQuery = topics
-    .map(t => `topic:${t.trim()}`)
-    .filter(Boolean)
-    .join(' OR ');
-  const q = `(${topicQuery}) stars:>=${minStars} created:>=${}`;
-  const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&sort=stars&order=desc&per_page=30`;
-
-  const headers = {
-    'User-Agent': 'LoonScript/GitHubWeekly/1.0',
-    'Accept': 'application/vnd.github+json',
-  };
-  if (token) headers['Authorization'] = token.includes(' ') ? token : `Bearer ${token}`;
-
-  const resp = await httpGet(url, headers, node);
-  if (resp.status !== 200) {
-    throw new Error(`GitHub API 请求失败: HTTP ${resp.status}`);
-  }
-
-  const data = safeJson(resp.body, {});
-  const items = Array.isArray(data.items) ? data.items : [];
-  return items.map(item => ({
-    id: item.id,
-    name: item.full_name,
-    description: item.description || '暂无描述',
-    stars: item.stargazers_count,
-    url: item.html_url,
-    language: item.language || '未知',
-  }));
-}
-
-function formatMessage(repos) {
-  // 通知正文太长容易被系统截断；这里控制每个项目 2-3 行
-  let out = '';
-  repos.forEach((r, i) => {
-    out += `${i + 1}. ${r.name}  ⭐${r.stars}  | ${r.language}\n`;
-    out += `   ${trimTo(r.description, 70)}\n`;
-    out += `   ${r.url}\n\n`;
-  });
-  return out.trim();
-}
-
-function getPushedRepoIds() {
-  const s = $persistentStore.read(STORAGE_KEY);
-  if (!s) return [];
-  try {
-    const arr = JSON.parse(s);
-    return Array.isArray(arr) ? arr : [];
-  } catch (_) {
-    return [];
-  }
-}
-
-function updatePushedRepoIds(oldList, newIds) {
-  const combined = [...oldList, ...newIds].filter(Boolean);
-  const limited = combined.slice(-200); // 保留最近 200 个，避免长期重复
-  $persistentStore.write(JSON.stringify(limited), STORAGE_KEY);
-}
-
-/* ------------------------- Loon 兼容工具 ------------------------- */
-
-function httpGet(url, headers, node) {
-  const effNode = pickNode(node);
-  return new Promise((resolve, reject) => {
-    $httpClient.get(
-      {
-        url,
-        timeout: 15000,
-        node: effNode,
-        headers: headers || {},
-      },
-      (err, resp, body) => {
-        if (err) return reject(err);
-        const status = resp && (resp.status || resp.statusCode) ? (resp.status || resp.statusCode) : 0;
-        resolve({ status, headers: resp ? resp.headers : {}, body: body || '' });
-      }
-    );
-  });
-}
+var STORAGE_KEY = "github_hot_pushed_v1";
 
 function parseArgs() {
-  // 插件 argument=[{a},{b}] 时，$argument 是对象：可用 $argument.a 访问
-  if (typeof $argument === 'object' && $argument !== null) return $argument;
+  var a = $argument;
+  if (typeof a === "object" && a) return a;
 
-  const a = (typeof $argument === 'string') ? $argument.trim() : '';
-  if (!a) return {};
-
-  // JSON
-  if (a.startsWith('{') && a.endsWith('}')) {
-    try { return JSON.parse(a); } catch (_) {}
+  // 兼容 query-string 形式
+  var s = (typeof a === "string") ? a.trim() : "";
+  if (!s) return {};
+  var out = {};
+  var parts = s.split("&");
+  for (var i = 0; i < parts.length; i++) {
+    var kv = parts[i];
+    if (!kv) continue;
+    var idx = kv.indexOf("=");
+    if (idx < 0) out[decodeURIComponent(kv)] = "";
+    else out[decodeURIComponent(kv.slice(0, idx))] = decodeURIComponent(kv.slice(idx + 1));
   }
-  // query-string
-  if (a.includes('=') && a.includes('&')) return parseQuery(a);
-  // 兜底：允许用户只填 topics
-  return { githubTopics: a };
-}
-
-function parseQuery(qs) {
-  const out = {};
-  qs.split('&').forEach(kv => {
-    const [k, v] = kv.split('=');
-    if (!k) return;
-    out[decodeURIComponent(k)] = decodeURIComponent(v || '');
-  });
   return out;
 }
 
-function pickNode(prefer) {
-  const p = String(prefer || '').trim();
-  if (p && !/^auto$/i.test(p)) return p;
-  try {
-    if (typeof $config !== 'undefined' && $config.getConfig) {
-      const cfg = $config.getConfig();
-      const cand = cfg.global_proxy || cfg.final;
-      if (cand) return cand;
-    }
-  } catch (_) {}
-  return undefined;
+function toInt(v, defVal) {
+  var n = parseInt(String(v || "").replace(/,/g, "").trim(), 10);
+  return isFinite(n) ? n : defVal;
 }
-
+function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
 function splitCsv(s) {
-  return String(s || '')
-    .split(',')
-    .map(x => x.trim())
-    .filter(Boolean);
+  var arr = String(s || "").split(",");
+  var out = [];
+  for (var i = 0; i < arr.length; i++) {
+    var x = String(arr[i] || "").trim();
+    if (x) out.push(x.toLowerCase());
+  }
+  return out;
+}
+function cleanText(html) {
+  return String(html || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function keywordHit(keywords, hayLower) {
+  if (!keywords || !keywords.length) return true;
+  var h = String(hayLower || "").toLowerCase();
+  for (var i = 0; i < keywords.length; i++) {
+    var k = String(keywords[i] || "").trim().toLowerCase();
+    if (!k) continue;
+    if (h.indexOf(k) >= 0) return true;
+  }
+  return false;
+}
+function pickNode(v) {
+  var s = String(v || "").trim();
+  if (!s) return "";
+  if (/^auto$/i.test(s)) return "";
+  return s;
 }
 
-function toInt(v, def) {
-  const n = parseInt(String(v || '').trim(), 10);
-  return Number.isFinite(n) ? n : def;
+function parseTrending(html) {
+  var raw = String(html || "");
+  var articles = raw.match(/<article[\s\S]*?<\/article>/g) || [];
+  var out = [];
+
+  for (var i = 0; i < articles.length; i++) {
+    var a = articles[i];
+
+    // repo path: /owner/repo
+    var mRepo = a.match(/<h2[^>]*>[\s\S]*?<a[^>]*href="\/([^"]+?)"[^>]*>/i);
+    if (!mRepo) continue;
+    var full = String(mRepo[1] || "").replace(/\s+/g, "");
+    var url = "https://github.com/" + full;
+
+    // desc
+    var desc = "";
+    var mDesc = a.match(/<p[^>]*>[\s\S]*?<\/p>/i);
+    if (mDesc) desc = cleanText(mDesc[0]);
+
+    // total stars（更鲁棒：先抓 stargazers 的 <a>，再清洗取数字）
+    var stars = 0;
+    var mStarA = a.match(/<a[^>]*href="\/[^"]+\/stargazers"[\s\S]*?<\/a>/i);
+    if (mStarA) {
+      var starText = cleanText(mStarA[0]);
+      var mNum = starText.match(/([\d,]+)/);
+      if (mNum) stars = toInt(mNum[1], 0);
+    }
+
+    // language
+    var lang = "";
+    var mLang = a.match(/itemprop="programmingLanguage"[^>]*>\s*([^<]+)\s*</i);
+    if (mLang) lang = String(mLang[1] || "").trim();
+
+    // stars today/this week/this month
+    var bump = "";
+    var mBump = a.match(/([\d,]+)\s+stars\s+(today|this\s+week|this\s+month)/i);
+    if (mBump) bump = String(mBump[1] || "") + " stars " + String(mBump[2] || "").replace(/\s+/g, " ");
+
+    out.push({
+      key: full.toLowerCase(),
+      full: full,
+      url: url,
+      desc: desc,
+      stars: stars,
+      lang: lang,
+      bump: bump
+    });
+  }
+
+  // 去重
+  var seen = {};
+  var uniq = [];
+  for (var j = 0; j < out.length; j++) {
+    var k = out[j].key;
+    if (seen[k]) continue;
+    seen[k] = 1;
+    uniq.push(out[j]);
+  }
+  return uniq;
 }
 
-function clamp(n, lo, hi) {
-  return Math.max(lo, Math.min(hi, n));
+function readPushed(cacheKey) {
+  var raw = $persistentStore.read(STORAGE_KEY);
+  if (!raw) return [];
+  try {
+    var obj = JSON.parse(raw);
+    var arr = obj && obj[cacheKey];
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    return [];
+  }
+}
+function writePushed(cacheKey, list) {
+  var limited = (list || []).filter(Boolean).slice(-300);
+  var obj = {};
+  try { obj = JSON.parse($persistentStore.read(STORAGE_KEY) || "{}") || {}; } catch (e) {}
+  obj[cacheKey] = limited;
+  $persistentStore.write(JSON.stringify(obj), STORAGE_KEY);
 }
 
-function safeJson(s, def) {
-  try { return JSON.parse(s); } catch (_) { return def; }
+function buildChunkBody(list, startIndex) {
+  var lines = [];
+  for (var i = 0; i < list.length; i++) {
+    var r = list[i];
+    var idx = startIndex + i + 1;
+    lines.push(idx + ". " + r.full + (r.bump ? ("（" + r.bump + "）") : ""));
+    if (r.desc) lines.push("   " + r.desc);
+    lines.push("   " + r.url);
+    lines.push("");
+  }
+  return lines.join("\n").trim();
 }
 
-function trimTo(s, maxLen) {
-  const str = String(s || '');
-  if (str.length <= maxLen) return str;
-  return str.slice(0, maxLen - 1) + '…';
-}
+function main() {
+  var args = parseArgs();
 
-function daysAgo(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d;
-}
+  // 兼容 plugin 传入的数组 argument=[...]
+  // Loon 可能把它转成对象 {0:"",1:""...}
+  function pick(k, idx, defVal) {
+    var v = (args && args[k] !== undefined) ? args[k] : (args && args[String(idx)] !== undefined ? args[String(idx)] : defVal);
+    return v === undefined || v === null ? defVal : v;
+  }
 
-function formatDateYYYYMMDD(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  var netNode = pick("netNode", 0, "");
+  var minStars = toInt(pick("githubMinStars", 2, "0"), 0);
+  var maxResults = toInt(pick("githubMaxResults", 3, "15"), 15);
+  if (maxResults <= 0) maxResults = 15;
+
+  var kwRaw = pick("githubTopics", 4, "");
+  var keywords = splitCsv(kwRaw);
+
+  var since = String(pick("githubSince", 5, "weekly")).trim().toLowerCase();
+  if (since !== "daily" && since !== "weekly" && since !== "monthly") since = "weekly";
+
+  var chunkSize = clamp(toInt(pick("githubChunkSize", 6, "4"), 4), 1, 8);
+
+  var langPath = String(pick("githubLang", 7, "")).trim(); // e.g. python
+  var url = "https://github.com/trending" + (langPath ? ("/" + encodeURIComponent(langPath)) : "") + "?since=" + encodeURIComponent(since);
+
+  var req = {
+    url: url,
+    timeout: 20000,
+    headers: {
+      "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"
+    }
+  };
+  var node = pickNode(netNode);
+  if (node) req.node = node;
+
+  $httpClient.get(req, function (err, resp, body) {
+    if (err) {
+      $notification.post("❌ GitHub 热点周报失败", "", String(err));
+      return $done();
+    }
+    var status = (resp && (resp.status || resp.statusCode)) ? (resp.status || resp.statusCode) : 0;
+    if (status !== 200) {
+      $notification.post("❌ GitHub 热点周报失败", "HTTP " + status, url);
+      return $done();
+    }
+
+    var all = parseTrending(body);
+
+    // 过滤：minStars + keywords
+    var filtered = [];
+    for (var i = 0; i < all.length; i++) {
+      var it = all[i];
+      if (it.stars < minStars) continue;
+      var hay = (it.full + " " + (it.desc || "")).toLowerCase();
+      if (!keywordHit(keywords, hay)) continue;
+      filtered.push(it);
+    }
+
+    // 限制条数
+    var picked = filtered.slice(0, maxResults);
+
+    var cacheKey = "since=" + since + "|lang=" + (langPath || "all") + "|kw=" + keywords.join(",");
+    var pushed = readPushed(cacheKey);
+    var fresh = [];
+    for (var j = 0; j < picked.length; j++) {
+      if (pushed.indexOf(picked[j].key) < 0) fresh.push(picked[j]);
+    }
+
+    if (!fresh.length) {
+      $notification.post("GitHub 热点周报（" + since + "）", "暂无新项目（或均已推送过）", url);
+      return $done();
+    }
+
+    // 汇总通知（带链接）
+    var title = "🔥 GitHub 热点周报（" + since + "）";
+    var sub = "抓取 " + all.length + " | 过滤后 " + filtered.length + " | 新推送 " + fresh.length
+      + (langPath ? (" | lang " + langPath) : "")
+      + (minStars ? (" | minStars " + minStars) : "")
+      + (keywords.length ? (" | kw " + keywords.length) : "");
+    $notification.post(title, sub, "榜单页：\n" + url);
+
+    // 分块推送，避免截断
+    var total = fresh.length;
+    var part = 0;
+    var newKeys = pushed.slice(0);
+
+    for (var start = 0; start < total; start += chunkSize) {
+      part++;
+      var chunk = fresh.slice(start, start + chunkSize);
+      var partTitle = title + " (" + part + "/" + Math.ceil(total / chunkSize) + ")";
+      var bodyText = buildChunkBody(chunk, start);
+
+      $notification.post(partTitle, "Top " + (start + 1) + "-" + (start + chunk.length), bodyText);
+
+      for (var k = 0; k < chunk.length; k++) newKeys.push(chunk[k].key);
+    }
+
+    writePushed(cacheKey, newKeys);
+    $done();
+  });
 }
 
 main();
