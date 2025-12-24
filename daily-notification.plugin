@@ -32,6 +32,8 @@ githubWeeklyEnable = switch,false,tag=GitHub AI项目周报,desc=每周一抓取
 githubMinStars = input,"100",tag=GitHub最低Stars,desc=仅推送 stars>=该值 的候选（默认 100）
 githubMaxResults = input,"5",tag=GitHub推送数量,desc=每次推送最多多少个项目（建议 3-5，避免通知过长）
 githubTopics = input,"artificial-intelligence,machine-learning,deep-learning,llm,gpt",tag=GitHub Topics,desc=英文逗号分隔；用于 topic: 查询
+githubSince = select,"weekly","daily","monthly",tag=GitHub热榜周期,desc=Trending 周期（默认 weekly）
+githubChunkSize = input,"4",tag=GitHub每条通知项目数,desc=建议 3-5，越大越容易被 iOS 截断
 githubToken = input,"",tag=GitHub Token(可选),desc=提升 API 限额；可填 PAT 或 "Bearer xxx"
 
 # 每日天气（区县级）
