@@ -1,11 +1,11 @@
-#!name= yyyy的奏折
-#!desc= 1) AI前沿早报 2）天气推送 3）github项目推送 4) 支持 A股/港股/美股/场外基金
-#!author= yyyy
-#!homepage= https://github.com/xiaoliangao/Loon_plugin/README.md
-#!icon= https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/icon.png
-#!system= iOS
-#!loon_version= 3.2.1(733)
-#!tag= 通知推送, AI资讯, 股票基金
+#!name=yyyy的奏折
+#!desc=1) AI前沿早报 2) 天气推送 3) GitHub 热点周报(Trending) 4) 支持 A股/港股/美股/场外基金
+#!author=yyyy
+#!homepage=https://github.com/xiaoliangao/Loon_plugin/README.md
+#!icon=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/icon.png
+#!system=iOS
+#!loon_version=3.2.1(733)
+#!tag=通知推送,AI资讯,股票基金
 
 [Argument]
 # 代码示例：000001,399001,012414,AAPL,TSLA,00700
@@ -16,10 +16,10 @@ netNode = select,"AUTO","DIRECT",tag=脚本网络策略组/节点(可选),desc=A
 
 # 可选：AI早报筛选与数量（不填则用默认关键词、默认 8 条）
 aiMax = input,"8",tag=AI早报条数(可选),desc=最多推送多少条（默认 8）
-aiKw = input,"",tag=AI早报关键词(可选),desc=英文逗号分隔，例如：deepseek,gemini,gpt,grok,claude,agent,rag,mcp
+aiKw  = input,"",tag=AI早报关键词(可选),desc=英文逗号分隔，例如：deepseek,gemini,gpt,grok,claude,agent,rag,mcp
+aiNewsEnable = switch,false,tag=AI技术早报(AICPB)推送,desc=每天早上推送大模型与Agent/RAG等技术更新
 
-aiNewsEnable = switch,flase,tag=AI技术早报(AICPB)推送,desc=每天早上推送大模型与Agent/RAG等技术更新
-stockEnable = switch,flase,tag=行情推送,desc=推送“较昨收涨跌”为主的行情速览
+stockEnable = switch,false,tag=行情推送,desc=推送“较昨收涨跌”为主的行情速览
 
 # 美股冬/夏令时：用于“多 cron 触发 + 脚本按时段过滤”方案。
 # 以北京时间常见配置为例：
@@ -27,30 +27,27 @@ stockEnable = switch,flase,tag=行情推送,desc=推送“较昨收涨跌”为�
 # - 冬令时：开盘 22:30，收盘 05:00
 usTimeMode = select,"SUMMER","WINTER",tag=美股时制(冬/夏令时),desc=SUMMER=夏令时；WINTER=冬令时（仅影响美股推送时段过滤；若你的 cron 用的是其它时区，请按需调整 cron 时间）
 
-# GitHub 周报（每周一）
-githubWeeklyEnable = switch,false,tag=GitHub AI项目周报,desc=每周一抓取 GitHub AI/LLM 新项目并推送
-githubMinStars = input,"100",tag=GitHub最低Stars,desc=仅推送 stars>=该值 的候选（默认 100）
-githubMaxResults = input,"5",tag=GitHub推送数量,desc=每次推送最多多少个项目（建议 3-5，避免通知过长）
-githubTopics = input,"artificial-intelligence,machine-learning,deep-learning,llm,gpt",tag=GitHub Topics,desc=英文逗号分隔；用于 topic: 查询
-githubSince = select,"weekly","daily","monthly",tag=GitHub热榜周期,desc=Trending 周期（默认 weekly）
-githubChunkSize = input,"4",tag=GitHub每条通知项目数,desc=建议 3-5，越大越容易被 iOS 截断
-githubToken = input,"",tag=GitHub Token(可选),desc=提升 API 限额；可填 PAT 或 "Bearer xxx"
+# GitHub 热点周报（Trending，周榜）
+githubWeeklyEnable = switch,false,tag=GitHub 热点周报,desc=每周一抓取 GitHub Trending（周榜）并推送
+githubMaxResults = input,"10",tag=GitHub推送数量,desc=每次推送多少个项目（建议 8-15；脚本会拆分通知避免截断）
+githubKeywords = input,"ai,llm,agent,rag",tag=GitHub关键词(可选),desc=英文逗号分隔；用于过滤 Trending 结果；留空=不过滤（全站热点）
 
 # 每日天气（区县级）
 weatherDailyEnable = switch,true,tag=每日天气推送,desc=每天推送天气
-weatherLocation = input,"",tag=天气位置,desc=支持三种格式：1) 经纬度: 120.354591,30.313967  2) 地名: 杭州 余杭区  3) 留空: 使用IP定位
+weatherLocation = input,"",tag=天气位置,desc=支持三种格式：1) 经纬度: 120.354591,30.313967 2) 地名: 杭州 余杭区 3) 留空: 使用IP定位
 
 [Script]
-# 你需要把下面两个 script-path 改成你自己的 GitHub raw 地址（推荐 fork 本仓库）。脚本会直接从插件“设置”里读取 stockCodes/netNode/aiMax/aiKw（不依赖 argument 变量替换）。
-# AI前沿早报 - 默认每天 08:30
+# 你需要把下面这些 script-path 改成你自己的 GitHub raw 地址（推荐 fork 本仓库）。
+
+# AI前沿早报 - 默认每天 09:35
 cron "35 9 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/ai-morning-news.js, tag=Ai_news, timeout=120, argument=[{netNode},{aiMax},{aiKw}], enable={aiNewsEnable}
 
-# GitHub AI 项目周报 - 默认每周一 09:00
-cron "0 9 * * 1" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/github-ai-trending.js, tag=GitHub AI周报, argument=[{netNode},{githubToken},{githubMinStars},{githubMaxResults},{githubTopics}], enable={githubWeeklyEnable}
+# GitHub 热点周报(Trending weekly) - 默认每周一 09:00
+cron "0 9 * * 1" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/github-ai-trending.js, tag=GitHub 热点周报, timeout=60, argument=[{netNode},{githubMaxResults},{githubKeywords}], enable={githubWeeklyEnable}
 
 # 每日天气（区县级）- 默认每天 08:00、13:00
-cron "0 8 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/local-weather-push.js, tag=每日天气, timeout=60, argument=[{weatherLocation}], enable={weatherDailyEnable}
-cron "0 13 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/local-weather-push.js, tag=每日天气, timeout=60, argument=[{weatherLocation}], enable={weatherDailyEnable}
+cron "0 8 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/local-weather-push.js, tag=每日天气, timeout=60, argument=[{weatherLocation}], enable={weatherDailyEnable}
+cron "0 13 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/local-weather-push.js, tag=每日天气, timeout=60, argument=[{weatherLocation}], enable={weatherDailyEnable}
 
 # 行情推送：
 # - A股/港股/基金：开盘后每隔几个小时推送一次 + 收盘总结
@@ -58,22 +55,22 @@ cron "0 13 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon
 # 说明：以下 cron 均指“设备本地时间”，你可以按自己的时区微调。
 
 # A股/港股/基金（工作日）
-cron "40 9 * * 1-5"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_open,   timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
-cron "30 11 * * 1-5" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_cn_mid,  timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
-cron "0 12 * * 1-5"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_hk_mid,  timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
-cron "0 14 * * 1-5"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_intraday,timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
-cron "5 15 * * 1-5"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_cn_close,timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
-cron "5 16 * * 1-5"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_hk_close,timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
+cron "40 9 * * 1-5"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_open,      timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
+cron "30 11 * * 1-5" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_cn_mid,    timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
+cron "0 12 * * 1-5"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_hk_mid,    timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
+cron "0 14 * * 1-5"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_intraday,  timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
+cron "5 15 * * 1-5"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_cn_close,  timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
+cron "5 16 * * 1-5"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_hk_close,  timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
 
 # 美股（按北京时间常见时段；跨零点，收盘会落在次日凌晨；脚本会根据 usTimeMode 过滤）
 # 夏令时：Mon-Fri 21:40 开盘后；Tue-Sat 00:40/03:40 盘中；Tue-Sat 04:05 收盘
 cron "40 21 * * 1-5" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_us_open_s,  timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
-cron "40 0 * * 2-6"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_us_mid1_s, timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
-cron "40 3 * * 2-6"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_us_mid2_s, timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
-cron "5 4 * * 2-6"   script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_us_close_s,timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
+cron "40 0 * * 2-6"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_us_mid1_s,  timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
+cron "40 3 * * 2-6"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_us_mid2_s,  timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
+cron "5 4 * * 2-6"   script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_us_close_s, timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
 
 # 冬令时：Mon-Fri 22:40 开盘后；Tue-Sat 01:40/04:40 盘中；Tue-Sat 05:05 收盘
 cron "40 22 * * 1-5" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_us_open_w,  timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
-cron "40 1 * * 2-6"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_us_mid1_w, timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
-cron "40 4 * * 2-6"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_us_mid2_w, timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
-cron "5 5 * * 2-6"   script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_us_close_w,timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
+cron "40 1 * * 2-6"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_us_mid1_w,  timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
+cron "40 4 * * 2-6"  script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_us_mid2_w,  timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
+cron "5 5 * * 2-6"   script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/refs/heads/main/stock-notify.js, tag=Stock_us_close_w, timeout=120, argument=[{stockCodes},{netNode},{usTimeMode}], enable={stockEnable}
