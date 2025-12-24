@@ -32,6 +32,7 @@ usTimeMode = select,"SUMMER","WINTER",tag=美股时制(冬/夏令时),desc=SUMME
 
 # GitHub 热点周报（Trending，周榜）
 githubWeeklyEnable = switch,false,tag=GitHub 热点周报,desc=每周一抓取 GitHub Trending（周榜）并推送
+githubSince = select,"weekly","daily","monthly",tag=GitHub热榜周期,desc=weekly=每周一推送；daily=每天推送；monthly=每月1号推送（同时对应Trending源周期）
 githubMaxResults = input,"10",tag=GitHub推送数量,desc=每次推送多少个项目（建议 8-15；脚本会拆分通知避免截断）
 githubKeywords = input,"ai,llm,agent,rag",tag=GitHub关键词(可选),desc=英文逗号分隔；用于过滤 Trending 结果；留空=不过滤（全站热点）
 
