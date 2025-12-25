@@ -12,9 +12,6 @@
 weatherDailyEnable = switch,true,tag=每日天气推送,desc=每天推送天气
 weatherLocation = input,"",tag=天气位置,desc=支持三种格式：1) 经纬度: 120.354591,30.313967 2) 地名: 杭州 余杭区 3) 留空: 使用IP定位
 
-# 微博超话签到开关
-weiboTopicEnable = switch,true,tag=微博超话签到,desc=每日自动签到关注的超话
-
 # 代码示例：000001,399001,012414,AAPL,TSLA,00700
 stockEnable = switch,false,tag=行情推送,desc=推送“较昨收涨跌”为主的行情速览
 stockCodes = input,"000001,399001,012414,AAPL",tag=股票/指数/基金代码,desc=英文逗号分隔；指数(000001/399001/399006)，港股(00700)，美股(AAPL/TSLA 或 TSLA.OQ)，场外基金(012414 或 fund:012414)
@@ -51,14 +48,6 @@ cron "0 9 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_
 # 每日天气（区县级）- 默认每天 08:00、13:00
 cron "30 8 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/local-weather-push.js, tag=每日天气, timeout=60, argument=[{weatherLocation}], enable={weatherDailyEnable}
 cron "0 13 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/local-weather-push.js, tag=每日天气, timeout=60, argument=[{weatherLocation}], enable={weatherDailyEnable}
-
-# 定时签到任务 - 每天10点执行
-cron "0 10 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/weibo-topic-sign.js, tag=微博超话签到, timeout=120, enable={weiboTopicEnable}
-# ① 抓关注列表参数（cardlist）
-http-request ^https?:\/\/m?api\.weibo\.(cn|com)\/2\/cardlist\?.*containerid=100803_-_followsuper script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/weibo-topic-cookie.js, tag=微博超话-抓关注列表, timeout=60, requires-body=false, enable={weiboTopicEnable}
-
-# ② 抓签到参数（page/button）— 必须 requires-body=true
-http-request ^https?:\/\/m?api\.weibo\.(cn|com)\/2\/page\/button\? script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/weibo-topic-cookie.js, tag=微博超话-抓签到参数, timeout=60, requires-body=true, enable={weiboTopicEnable}
 
 # 行情推送：
 # - A股/港股/基金：开盘后每隔几个小时推送一次 + 收盘总结
