@@ -1,38 +1,47 @@
 /*
-微博超话Cookie获取脚本
-使用方法：
-1. 在 Loon 中配置 MITM 和重写规则
-2. 打开微博 APP，进入"我的超话"页面
-3. 等待通知提示 Cookie 获取成功
+微博超话 Cookie/gsid 获取脚本（Loon）
+1) 开启 MITM：api.weibo.cn
+2) 配置 [Script] http-request 触发本脚本
+3) 打开微博 App -> 我的 -> 我的超话（关注超话列表页）
 */
 
 const $ = new Env('微博超话Cookie');
 
-if ($request && $request.url.match(/api\.weibo\.cn/)) {
-    const cookie = $request.headers['Cookie'] || $request.headers['cookie'];
-    const url = $request.url;
-    
-    const cookie = ($request.headers['Cookie'] || $request.headers['cookie'] || '');
-    const url = $request.url;
-    
-    const gsid = url.match(/gsid=([^&]+)/)?.[1];
-    const uid  = url.match(/uid=(\d+)/)?.[1];
-    
-    if (gsid) {
-      const weiboData = {
-        cookie,              // 可能为空也没关系
-        gsid,
-        uid: uid || '',
-        updateTime: new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
-      };
-      $.setdata(JSON.stringify(weiboData), 'weibo_topic_data');
-      $.msg('微博超话Cookie', '✅ 获取成功', `UID: ${weiboData.uid || '未知'}\n更新时间: ${weiboData.updateTime}`);
-    } else {
-      $.msg('微博超话Cookie', '⚠️ 未获取到 gsid', '请进入“我的超话”列表页再试');
-    }
+(function () {
+  if (typeof $request === 'undefined') return $done({}); // 防止手动运行报错
+
+  const url = $request.url || '';
+  if (!/api\.weibo\.cn/.test(url)) return $done({});
+
+  const headers = $request.headers || {};
+  const cookie = headers['Cookie'] || headers['cookie'] || '';
+
+  const gsid = url.match(/(?:\?|&)gsid=([^&]+)/)?.[1] || '';
+  const uid  = url.match(/(?:\?|&)uid=(\d+)/)?.[1] || '';
+
+  if (!gsid) {
+    $.msg('微博超话Cookie', '⚠️ 未获取到 gsid', '请进入“我的超话”列表页再试');
+    return $done({});
+  }
+
+  const weiboData = {
+    cookie,          // 可能为空
+    gsid,
+    uid,
+    updateTime: new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }),
+  };
+
+  $.setdata(JSON.stringify(weiboData), 'weibo_topic_data');
+  $.msg('微博超话Cookie', '✅ 获取成功', `UID: ${uid || '未知'}\n更新时间: ${weiboData.updateTime}`);
+
+  return $done({}); // 关键：放行请求
+})();
+
+function Env(name) {
+  return new (class {
+    constructor(name) { this.name = name; console.log(`🔔 ${this.name}, 开始!`); }
+    getdata(k) { return $persistentStore.read(k); }
+    setdata(v, k) { return $persistentStore.write(v, k); }
+    msg(t, s, b) { $notification.post(t, s, b); }
+  })(name);
 }
-
-$.done();
-
-// Env 封装
-function Env(t){return new class{constructor(t){this.name=t,this.startTime=Date.now(),this.log(`🔔 ${this.name}, 开始!`)}isLoon(){return"undefined"!=typeof $loon}getdata(t){return $persistentStore.read(t)}setdata(t,e){return $persistentStore.write(t,e)}msg(t,e,s){$notification.post(t,e,s)}log(t){console.log(t)}done(){const t=(Date.now()-this.startTime)/1e3;this.log(`🔔 ${this.name}, 结束! 🕛 ${t} 秒`),$done()}}(t)}
