@@ -4,17 +4,18 @@ const KEY = 'weibo_topic_data';
 (function () {
   if (typeof $request === 'undefined') return $done({});
 
-  const url = $request.url || '';
-  if (!/weibo\.(cn|com)/.test(url)) return $done({});
+  const urlStr = $request.url || '';
+  if (!/weibo\.(cn|com)/.test(urlStr)) return $done({});
 
   const headers = $request.headers || {};
   const ua = headers['User-Agent'] || headers['user-agent'] || '';
   const reqCookie = headers['Cookie'] || headers['cookie'] || '';
-  const gsid = url.match(/(?:\?|&)gsid=([^&]+)/)?.[1] || '';
-  const uid  = url.match(/(?:\?|&)uid=(\d+)/)?.[1] || '';
+
+  const gsid = urlStr.match(/(?:\?|&)gsid=([^&]+)/)?.[1] || '';
+  const uid  = urlStr.match(/(?:\?|&)uid=(\d+)/)?.[1] || '';
 
   let data = {};
-  try { data = JSON.parse($.getdata(KEY) || '{}'); } catch (_) {}
+  try { data = JSON.parse($.getdata(KEY) || '{}'); } catch (_) { data = {}; }
 
   let notify = [];
 
@@ -24,30 +25,48 @@ const KEY = 'weibo_topic_data';
   if (gsid) data.gsid = gsid;
   if (uid) data.uid = uid;
 
-  // ① 关注列表（保存完整 URL）
+  // ① 捕获关注列表：我的超话（关注列表）
   const isFollowList =
-    /\/2\/(cardlist|page)\?/.test(url) && /containerid=100803_-_followsuper/.test(url);
-  if (isFollowList && data.cardlist_url !== url) {
-    data.cardlist_url = url;
+    /\/2\/(cardlist|page)\?/.test(urlStr) &&
+    /containerid=100803_-_followsuper/.test(urlStr);
+
+  if (isFollowList && data.cardlist_url !== urlStr) {
+    data.cardlist_url = urlStr;
     notify.push('✅ 已捕获关注列表 cardlist_url');
   }
 
-  // ② 签到按钮（保存 URL + body 模板）
-  const isButton = /\/2\/page\/button\?/.test(url);
-  if (isButton && data.button_url !== url) {
-    data.button_url = url;
-    notify.push('✅ 已捕获签到 button_url');
-  }
-
+  // ② 捕获签到按钮：/2/page/button
+  const isButton = /\/2\/page\/button\?/.test(urlStr);
   if (isButton) {
-    const body = ($request.body || '').trim();
-    if (body) {
-      // 把 body 里的 containerid=123 替换为 containerid={containerid}
-      const tpl = body.replace(/(^|&)containerid=\d+/, '$1containerid={containerid}');
-      if (data.button_body_tpl !== tpl) {
-        data.button_body_tpl = tpl;
-        notify.push('✅ 已捕获签到 button_body_tpl');
+    data.button_url = urlStr; // 留个原始样本方便你排查
+    data.button_method = ($request.method || 'GET').toUpperCase();
+
+    // 生成可复用的 URL 模板：button_url_tpl
+    try {
+      const u = new URL(urlStr);
+
+      // 去掉极易变化且对功能没帮助的字段（保留也行，但会频繁变化导致你以为没抓到）
+      const dropKeys = new Set(['ul_sid', 'ul_hid', 'ul_ctime', 'lcardid']);
+      for (const k of dropKeys) u.searchParams.delete(k);
+
+      // fid 通常形如 100808<pageid>_-_recommend，把它变成占位符
+      if (u.searchParams.has('fid')) u.searchParams.set('fid', '{fid}');
+
+      // request_url 里包含 active_checkin&pageid=xxxx，把 pageid 替换成占位符
+      const ru = u.searchParams.get('request_url');
+      if (ru) {
+        const decoded = decodeURIComponent(ru);
+        const patched = decoded.replace(/([?&])pageid=[^&]+/i, '$1pageid={pageid}');
+        u.searchParams.set('request_url', encodeURIComponent(patched));
       }
+
+      const tpl = u.toString();
+      if (data.button_url_tpl !== tpl) {
+        data.button_url_tpl = tpl;
+        notify.push('✅ 已捕获签到模板 button_url_tpl');
+      }
+    } catch (_) {
+      // URL 解析失败就不生成模板，保留原始 button_url
     }
   }
 
@@ -56,7 +75,7 @@ const KEY = 'weibo_topic_data';
 
   // 只在新增关键字段时通知，避免刷屏
   if (notify.length) {
-    $.msg('微博超话参数抓取', '已更新', `${notify.join('\n')}\nUID: ${data.uid || '未捕获'}`);
+    $.msg('微博超话参数抓取', '已更新', `${notify.join('\n')}\nUID: ${data.uid || '未捕获'}\n${data.updateTime}`);
   }
 
   return $done({}); // 放行请求
