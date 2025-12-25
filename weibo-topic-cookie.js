@@ -12,6 +12,9 @@ const KEY = 'weibo_topic_data';
   let gsid = url.match(/(?:\?|&)gsid=([^&]+)/)?.[1] || '';
   let uid  = url.match(/(?:\?|&)uid=(\d+)/)?.[1] || '';
 
+  console.log('[HIT] ' + url);
+  console.log('[uid] ' + uid + ' [gsid] ' + gsid + ' [cookie_len] ' + (cookie ? cookie.length : 0));
+
   // 读取旧数据，避免“抓到不完整参数就覆盖掉”
   let old = null;
   try { old = JSON.parse($.getdata(KEY) || 'null'); } catch (_) {}
