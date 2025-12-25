@@ -1,4 +1,5 @@
 const $ = new Env('微博超话Cookie');
+const KEY = 'weibo_topic_data';
 
 (function () {
   if (typeof $request === 'undefined') return $done({});
@@ -6,29 +7,37 @@ const $ = new Env('微博超话Cookie');
   const url = $request.url || '';
   if (!/api\.weibo\.cn/.test(url)) return $done({});
 
-  // 调试时可打开：用于确认到底命中了什么请求
-  // console.log('[Weibo HIT] ' + url);
-
   const headers = $request.headers || {};
-  const cookie = headers['Cookie'] || headers['cookie'] || '';
+  let cookie = headers['Cookie'] || headers['cookie'] || '';
+  let gsid = url.match(/(?:\?|&)gsid=([^&]+)/)?.[1] || '';
+  let uid  = url.match(/(?:\?|&)uid=(\d+)/)?.[1] || '';
 
-  const gsid = url.match(/(?:\?|&)gsid=([^&]+)/)?.[1] || '';
-  const uid  = url.match(/(?:\?|&)uid=(\d+)/)?.[1] || '';
+  // 读取旧数据，避免“抓到不完整参数就覆盖掉”
+  let old = null;
+  try { old = JSON.parse($.getdata(KEY) || 'null'); } catch (_) {}
 
-  if (!gsid) {
-    $.msg('微博超话Cookie', '⚠️ 命中但无 gsid', '请换入口再试（建议：我→我的超话）');
-    return $done({});
-  }
+  if (!cookie && old?.cookie) cookie = old.cookie;
+  if (!uid && old?.uid) uid = old.uid;
 
-  $.setdata(JSON.stringify({
-    cookie, // 可能为空，正常
+  if (!gsid) return $done({});              // 没 gsid 没意义
+  if (!uid) return $done({});               // 没 uid 先别通知（等你打开能带 uid 的页面）
+
+  const next = {
+    cookie,
     gsid,
     uid,
     updateTime: new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
-  }), 'weibo_topic_data');
+  };
 
-  $.msg('微博超话Cookie', '✅ 获取成功', `UID: ${uid || '未知'}\n已保存 gsid`);
-  return $done({}); // 放行请求（关键）
+  const unchanged =
+    old && old.gsid === next.gsid && old.uid === next.uid && (old.cookie || '') === (next.cookie || '');
+
+  if (!unchanged) {
+    $.setdata(JSON.stringify(next), KEY);
+    $.msg('微博超话Cookie', '✅ 已更新', `UID: ${uid}\n更新时间: ${next.updateTime}`);
+  }
+
+  return $done({}); // 放行请求
 })();
 
 function Env(name) {
