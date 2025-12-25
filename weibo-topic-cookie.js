@@ -12,29 +12,23 @@ if ($request && $request.url.match(/api\.weibo\.cn/)) {
     const cookie = $request.headers['Cookie'] || $request.headers['cookie'];
     const url = $request.url;
     
-    if (cookie) {
-        // 提取关键参数
-        const sub = cookie.match(/SUB=([^;]+)/)?.[1];
-        const gsid = url.match(/gsid=([^&]+)/)?.[1];
-        const uid = url.match(/uid=(\d+)/)?.[1];
-        
-        if (sub || gsid) {
-            const weiboData = {
-                cookie: cookie,
-                gsid: gsid || '',
-                uid: uid || '',
-                updateTime: new Date().toLocaleString('zh-CN', {timeZone: 'Asia/Shanghai'})
-            };
-            
-            $.setdata(JSON.stringify(weiboData), 'weibo_topic_data');
-            console.log('✅ 微博Cookie获取成功');
-            console.log(`UID: ${uid || '未知'}`);
-            console.log(`更新时间: ${weiboData.updateTime}`);
-            
-            $.msg('微博超话Cookie', '✅ 获取成功', `UID: ${uid || '未知'}\n更新时间: ${weiboData.updateTime}`);
-        } else {
-            console.log('⚠️ Cookie 中未找到关键信息');
-        }
+    const cookie = ($request.headers['Cookie'] || $request.headers['cookie'] || '');
+    const url = $request.url;
+    
+    const gsid = url.match(/gsid=([^&]+)/)?.[1];
+    const uid  = url.match(/uid=(\d+)/)?.[1];
+    
+    if (gsid) {
+      const weiboData = {
+        cookie,              // 可能为空也没关系
+        gsid,
+        uid: uid || '',
+        updateTime: new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+      };
+      $.setdata(JSON.stringify(weiboData), 'weibo_topic_data');
+      $.msg('微博超话Cookie', '✅ 获取成功', `UID: ${weiboData.uid || '未知'}\n更新时间: ${weiboData.updateTime}`);
+    } else {
+      $.msg('微博超话Cookie', '⚠️ 未获取到 gsid', '请进入“我的超话”列表页再试');
     }
 }
 
