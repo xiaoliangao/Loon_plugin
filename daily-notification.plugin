@@ -54,7 +54,11 @@ cron "0 13 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon
 
 # 定时签到任务 - 每天10点执行
 cron "0 10 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/weibo-topic-sign.js, tag=微博超话签到, timeout=120, enable={weiboTopicEnable}
-http-request ^https?:\/\/api\.weibo\.cn\/2\/.*(?:(?:\?|&)gsid=[^&]+.*(?:\?|&)uid=\d+|(?:\?|&)uid=\d+.*(?:\?|&)gsid=[^&]+) script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/weibo-topic-cookie.js, tag=微博超话Cookie, timeout=60, requires-body=false, enable={weiboTopicEnable}
+# ① 抓“我的超话（关注列表）”请求参数
+http-request ^https?:\/\/api\.weibo\.cn\/2\/cardlist\?.*containerid=100803_-_followsuper script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/weibo-topic-cookie.js, tag=微博超话-抓关注列表参数, timeout=60, requires-body=false, enable={weiboTopicEnable}
+
+# ② 抓“签到按钮”请求参数（必须 requires-body=true 才能拿到 POST body）
+http-request ^https?:\/\/api\.weibo\.cn\/2\/page\/button\? script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/weibo-topic-cookie.js, tag=微博超话-抓签到参数, timeout=60, requires-body=true, enable={weiboTopicEnable}
 
 # 行情推送：
 # - A股/港股/基金：开盘后每隔几个小时推送一次 + 收盘总结
