@@ -39,10 +39,6 @@ githubSince = select,"weekly","daily","monthly",tag=GitHub热榜周期,desc=week
 githubMaxResults = input,"10",tag=GitHub推送数量,desc=每次推送多少个项目（建议 8-15；脚本会拆分通知避免截断）
 githubKeywords = input,"ai,llm,agent,rag",tag=GitHub关键词(可选),desc=英文逗号分隔；用于过滤 Trending 结果；留空=不过滤（全站热点）
 
-[Rewrite]
-# 微博超话 Cookie 获取
-^https?:\/\/api\.weibo\.cn\/2\/cardlist script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/weibo-topic-cookie.js, requires-body=false, tag=微博超话Cookie获取
-
 [Script]
 # 你需要把下面这些 script-path 改成你自己的 GitHub raw 地址（推荐 fork 本仓库）。
 
@@ -58,6 +54,7 @@ cron "0 13 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon
 
 # 定时签到任务 - 每天10点执行
 cron "0 10 * * *" script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/weibo-topic-sign.js, tag=微博超话签到, timeout=120, enable={weiboTopicEnable}
+http-request ^https?:\/\/api\.weibo\.cn\/2\/(cardlist|page).*(containerid=100803_-_followsuper|followsuper) script-path=https://raw.githubusercontent.com/xiaoliangao/Loon_plugin/main/weibo-topic-cookie.js, tag=微博超话Cookie, timeout=60, enabled=true
 
 # 行情推送：
 # - A股/港股/基金：开盘后每隔几个小时推送一次 + 收盘总结
